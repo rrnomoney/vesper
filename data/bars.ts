@@ -14,6 +14,8 @@ export type Bar = {
   rating: number;
   reviews: number;
   price: string;
+  latitude: number;
+  longitude: number;
   isSaved: boolean;
   image: string;
   tags: string[];
@@ -31,6 +33,8 @@ export const featuredBars: Bar[] = [
     rating: 4.8,
     reviews: 128,
     price: '180 / person',
+    latitude: 31.2298,
+    longitude: 121.4548,
     isSaved: true,
     image:
       'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85',
@@ -51,6 +55,8 @@ export const featuredBars: Bar[] = [
     rating: 4.6,
     reviews: 96,
     price: '150 / person',
+    latitude: 31.2096,
+    longitude: 121.4461,
     isSaved: false,
     image:
       'https://images.unsplash.com/photo-1543007630-9710e4a00a20?auto=format&fit=crop&w=900&q=85',
@@ -71,6 +77,8 @@ export const featuredBars: Bar[] = [
     rating: 4.7,
     reviews: 76,
     price: '220 / person',
+    latitude: 31.2382,
+    longitude: 121.4996,
     isSaved: false,
     image:
       'https://images.unsplash.com/photo-1566417713940-fe7c737a9ef2?auto=format&fit=crop&w=900&q=85',
@@ -91,6 +99,8 @@ export const featuredBars: Bar[] = [
     rating: 4.5,
     reviews: 64,
     price: '130 / person',
+    latitude: 31.2144,
+    longitude: 121.4582,
     isSaved: true,
     image:
       'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=900&q=85',
@@ -111,6 +121,8 @@ export const featuredBars: Bar[] = [
     rating: 4.9,
     reviews: 142,
     price: '210 / person',
+    latitude: 31.2323,
+    longitude: 121.4817,
     isSaved: false,
     image:
       'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=900&q=85',

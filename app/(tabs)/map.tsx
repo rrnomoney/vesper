@@ -1,80 +1,140 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import MapView, { Marker, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { featuredBars } from '../../data/bars';
+import { featuredBars, type Bar } from '../../data/bars';
 import { useCheckInStore } from '../../stores/checkInStore';
 
-const mockPins = [
-  { id: 'alchemy', top: '27%', left: '22%' },
-  { id: 'sober-company', top: '42%', left: '63%' },
-  { id: 'nest-rooftop', top: '21%', left: '68%' },
-  { id: 'la-social', top: '59%', left: '31%' },
-  { id: 'violet-room', top: '68%', left: '72%' },
-] as const;
+type MapMode = 'spots' | 'user';
+type MapCoordinate = {
+  latitude: number;
+  longitude: number;
+};
+
+const shanghaiRegion: Region = {
+  latitude: 31.2304,
+  longitude: 121.4737,
+  latitudeDelta: 0.055,
+  longitudeDelta: 0.055,
+};
 
 export default function MapScreen() {
+  const mapRef = useRef<MapView>(null);
   const visitedBarIds = useCheckInStore((state) => state.visitedBarIds);
-  const [selectedBarId, setSelectedBarId] = useState(featuredBars[0]?.id);
-  const selectedBar = featuredBars.find((bar) => bar.id === selectedBarId);
+  const [selectedBar, setSelectedBar] = useState<Bar | null>(featuredBars[0] ?? null);
+  const [mapMode, setMapMode] = useState<MapMode>('spots');
+  const [userCoordinate, setUserCoordinate] = useState<MapCoordinate | null>(null);
+  const [locationMessage, setLocationMessage] = useState('');
+
+  const moveToUserLocation = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+
+    if (status !== Location.PermissionStatus.GRANTED) {
+      setLocationMessage('Location permission was not allowed.');
+      return;
+    }
+
+    const location = await Location.getCurrentPositionAsync({});
+    const nextCoordinate = {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    };
+
+    setMapMode('user');
+    setSelectedBar(null);
+    setUserCoordinate(nextCoordinate);
+    setLocationMessage('');
+    mapRef.current?.animateToRegion(
+      {
+        ...nextCoordinate,
+        latitudeDelta: 0.025,
+        longitudeDelta: 0.025,
+      },
+      650,
+    );
+  };
+
+  const showShanghaiSpots = () => {
+    setMapMode('spots');
+    setLocationMessage('');
+    setSelectedBar(featuredBars[0] ?? null);
+    mapRef.current?.animateToRegion(shanghaiRegion, 650);
+  };
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>Night map</Text>
-            <Text style={styles.subtitle}>A soft preview of places around you</Text>
+            <Text style={styles.subtitle}>Explore nearby Vesper spots</Text>
           </View>
-          <View style={styles.locationButton}>
-            <Ionicons name="navigate" size={18} color="#8b5cf6" />
+          <View style={styles.headerActions}>
+            <Pressable style={styles.spotsButton} onPress={showShanghaiSpots}>
+              <Text style={styles.spotsButtonText}>Shanghai spots</Text>
+            </Pressable>
+            <Pressable style={styles.locationButton} onPress={moveToUserLocation}>
+              <Ionicons name="locate" size={18} color="#8b5cf6" />
+            </Pressable>
           </View>
         </View>
+
+        <Text style={styles.mapHint}>Mock venues are currently based in Shanghai.</Text>
 
         <View style={styles.mapCard}>
-          <View style={[styles.road, styles.roadOne]} />
-          <View style={[styles.road, styles.roadTwo]} />
-          <View style={[styles.road, styles.roadThree]} />
-          <View style={[styles.road, styles.roadFour]} />
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            initialRegion={shanghaiRegion}
+            scrollEnabled={false}
+            zoomEnabled
+            pitchEnabled={false}
+            rotateEnabled={false}
+          >
+            {mapMode === 'spots'
+              ? featuredBars.map((bar) => {
+                  const isVisited = visitedBarIds.includes(bar.id);
+                  const isSelected = selectedBar?.id === bar.id;
 
-          <View style={styles.districtOne} />
-          <View style={styles.districtTwo} />
-          <View style={styles.districtThree} />
+                  return (
+                    <Marker
+                      key={bar.id}
+                      coordinate={{ latitude: bar.latitude, longitude: bar.longitude }}
+                      onPress={() => {
+                        setSelectedBar(bar);
+                        setMapMode('spots');
+                        setLocationMessage('');
+                      }}
+                    >
+                      <View style={[styles.marker, isVisited && styles.markerVisited, isSelected && styles.markerSelected]}>
+                        <Ionicons name={isVisited ? 'sparkles' : 'wine'} size={15} color="#ffffff" />
+                      </View>
+                    </Marker>
+                  );
+                })
+              : null}
 
-          {mockPins.map((pin) => {
-            const bar = featuredBars.find((item) => item.id === pin.id);
-            const isVisited = visitedBarIds.includes(pin.id);
-            const isSelected = selectedBarId === pin.id;
+            {mapMode === 'user' && userCoordinate ? (
+              <Marker coordinate={userCoordinate}>
+                <View style={styles.userMarker}>
+                  <Ionicons name="person" size={15} color="#ffffff" />
+                </View>
+              </Marker>
+            ) : null}
+          </MapView>
 
-            if (!bar) {
-              return null;
-            }
-
-            return (
-              <Pressable
-                key={pin.id}
-                style={[
-                  styles.pin,
-                  { top: pin.top, left: pin.left },
-                  isVisited && styles.pinVisited,
-                  isSelected && styles.pinSelected,
-                ]}
-                onPress={() => setSelectedBarId(pin.id)}
-              >
-                {isVisited ? <View style={styles.pinGlow} /> : null}
-                <Ionicons name={isVisited ? 'sparkles' : 'wine'} size={15} color={isVisited ? '#ffffff' : '#8b5cf6'} />
-              </Pressable>
-            );
-          })}
-
-          <View style={styles.mapLabel}>
-            <Text style={styles.mapLabelText}>Shanghai nightlife mock map</Text>
-          </View>
+          {locationMessage ? (
+            <View style={styles.messageBadge}>
+              <Text style={styles.messageText}>{locationMessage}</Text>
+            </View>
+          ) : null}
         </View>
 
-        {selectedBar ? (
+        {selectedBar && mapMode === 'spots' ? (
           <View style={styles.previewCard}>
             <View style={styles.previewTop}>
               <View style={styles.previewIcon}>
@@ -105,17 +165,46 @@ export default function MapScreen() {
             </Pressable>
           </View>
         ) : null}
-      </View>
+
+        {mapMode === 'user' ? (
+          <View style={styles.previewCard}>
+            <View style={styles.previewTop}>
+              <View style={styles.previewIcon}>
+                <Ionicons name="navigate-outline" size={20} color="#8b5cf6" />
+              </View>
+              <View style={styles.previewText}>
+                <Text style={styles.previewName}>Current location</Text>
+                <Text style={styles.previewMeta}>You are here</Text>
+              </View>
+            </View>
+
+            <View style={styles.emptyNearby}>
+              <Text style={styles.emptyTitle}>No Vesper spots near you yet</Text>
+              <Text style={styles.emptyText}>Shanghai mock venues are available while this map is in preview.</Text>
+            </View>
+          </View>
+        ) : null}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#fffdfc' },
-  content: { flex: 1, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 136 },
+  content: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 150 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   title: { color: '#111111', fontSize: 32, fontWeight: '900' },
   subtitle: { marginTop: 7, color: '#71717a', fontSize: 14, fontWeight: '600' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  spotsButton: {
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+    backgroundColor: '#f5f3ff',
+    paddingHorizontal: 13,
+  },
+  spotsButtonText: { color: '#7c3aed', fontSize: 12, fontWeight: '900' },
   locationButton: {
     width: 44,
     height: 44,
@@ -129,8 +218,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 4,
   },
+  mapHint: {
+    marginBottom: 10,
+    color: '#8b5cf6',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   mapCard: {
-    flex: 1,
+    height: 390,
     overflow: 'hidden',
     borderRadius: 32,
     backgroundColor: '#f8f7fb',
@@ -142,85 +237,56 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 14 },
     elevation: 7,
   },
-  districtOne: {
-    position: 'absolute',
-    top: 34,
-    left: 22,
-    width: 150,
-    height: 110,
-    borderRadius: 32,
-    backgroundColor: '#f5f3ff',
-  },
-  districtTwo: {
-    position: 'absolute',
-    right: 18,
-    top: 142,
-    width: 132,
-    height: 150,
-    borderRadius: 34,
-    backgroundColor: '#fff1f2',
-  },
-  districtThree: {
-    position: 'absolute',
-    left: 36,
-    bottom: 58,
-    width: 178,
-    height: 120,
-    borderRadius: 36,
-    backgroundColor: '#fdf2f8',
-  },
-  road: {
-    position: 'absolute',
-    borderRadius: 999,
-    backgroundColor: '#ffffff',
-    opacity: 0.92,
-  },
-  roadOne: { width: '120%', height: 18, top: '26%', left: '-10%', transform: [{ rotate: '-12deg' }] },
-  roadTwo: { width: 18, height: '110%', top: '-4%', left: '50%', transform: [{ rotate: '17deg' }] },
-  roadThree: { width: '100%', height: 14, top: '58%', left: '4%', transform: [{ rotate: '18deg' }] },
-  roadFour: { width: 16, height: '80%', top: '20%', left: '24%', transform: [{ rotate: '-28deg' }] },
-  pin: {
-    position: 'absolute',
-    width: 38,
-    height: 38,
+  map: { flex: 1 },
+  marker: {
+    width: 34,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 19,
+    borderRadius: 17,
     borderWidth: 3,
     borderColor: '#ffffff',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#8b5cf6',
     shadowColor: '#8b5cf6',
     shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 6,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
   },
-  pinVisited: {
+  markerVisited: {
     backgroundColor: '#ec4899',
     borderColor: '#f5d0fe',
     shadowColor: '#ec4899',
     shadowOpacity: 0.34,
     shadowRadius: 16,
   },
-  pinSelected: { transform: [{ scale: 1.16 }] },
-  pinGlow: {
-    position: 'absolute',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#8b5cf6',
-    opacity: 0.9,
+  markerSelected: { transform: [{ scale: 1.16 }] },
+  userMarker: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    backgroundColor: '#0ea5e9',
+    shadowColor: '#0ea5e9',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 6,
   },
-  mapLabel: {
+  messageBadge: {
     position: 'absolute',
     left: 16,
+    right: 16,
     top: 16,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.88)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
   },
-  mapLabelText: { color: '#71717a', fontSize: 12, fontWeight: '800' },
+  messageText: { color: '#71717a', fontSize: 13, fontWeight: '800', textAlign: 'center' },
   previewCard: {
     marginTop: 16,
     borderRadius: 28,
@@ -273,4 +339,12 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   detailsButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
+  emptyNearby: {
+    marginTop: 16,
+    borderRadius: 22,
+    backgroundColor: '#f8f7fb',
+    padding: 15,
+  },
+  emptyTitle: { color: '#18181b', fontSize: 15, fontWeight: '900' },
+  emptyText: { marginTop: 5, color: '#71717a', fontSize: 13, lineHeight: 19, fontWeight: '600' },
 });

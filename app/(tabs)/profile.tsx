@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { featuredBars } from '../../data/bars';
@@ -9,9 +9,27 @@ import { useSavedStore } from '../../stores/savedStore';
 
 export default function ProfileScreen() {
   const visitedCount = useCheckInStore((state) => state.visitedBarIds.length);
+  const clearCheckIns = useCheckInStore((state) => state.clearCheckIns);
   const posts = usePostStore((state) => state.posts);
+  const clearPosts = usePostStore((state) => state.clearPosts);
   const savedBarIds = useSavedStore((state) => state.savedBarIds);
+  const clearSavedBars = useSavedStore((state) => state.clearSavedBars);
   const savedBars = featuredBars.filter((bar) => savedBarIds.includes(bar.id));
+
+  const confirmClearDemoData = () => {
+    Alert.alert('Clear demo data?', 'This will reset visited, saved, and reviews.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () => {
+          clearCheckIns();
+          clearSavedBars();
+          clearPosts();
+        },
+      },
+    ]);
+  };
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -111,6 +129,11 @@ export default function ProfileScreen() {
             ))
           )}
         </View>
+
+        <Pressable style={styles.clearButton} onPress={confirmClearDemoData}>
+          <Ionicons name="trash-outline" size={17} color="#be185d" />
+          <Text style={styles.clearButtonText}>Clear demo data</Text>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
@@ -226,4 +249,18 @@ const styles = StyleSheet.create({
   savedName: { color: '#111111', fontSize: 16, fontWeight: '900' },
   savedMeta: { marginTop: 4, color: '#71717a', fontSize: 12, fontWeight: '600' },
   savedRating: { marginTop: 7, color: '#f59e0b', fontSize: 12, fontWeight: '900' },
+  clearButton: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#fce7f3',
+    backgroundColor: '#fdf2f8',
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+  },
+  clearButtonText: { color: '#be185d', fontSize: 14, fontWeight: '900' },
 });

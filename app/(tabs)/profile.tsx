@@ -4,10 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { featuredBars } from '../../data/bars';
 import { useCheckInStore } from '../../stores/checkInStore';
+import { usePostStore } from '../../stores/postStore';
 import { useSavedStore } from '../../stores/savedStore';
 
 export default function ProfileScreen() {
   const visitedCount = useCheckInStore((state) => state.visitedBarIds.length);
+  const posts = usePostStore((state) => state.posts);
   const savedBarIds = useSavedStore((state) => state.savedBarIds);
   const savedBars = featuredBars.filter((bar) => savedBarIds.includes(bar.id));
 
@@ -32,9 +34,53 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.divider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>0</Text>
+            <Text style={styles.statValue}>{posts.length}</Text>
             <Text style={styles.statLabel}>Reviews</Text>
           </View>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>My Reviews</Text>
+          <Text style={styles.sectionHint}>{posts.length} shared</Text>
+        </View>
+
+        <View style={styles.reviewList}>
+          {posts.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="chatbubble-ellipses-outline" size={24} color="#8b5cf6" />
+              <Text style={styles.emptyTitle}>No stories yet</Text>
+              <Text style={styles.emptyText}>Share a night from Publish and it will appear here.</Text>
+            </View>
+          ) : (
+            posts.map((post) => (
+              <View key={post.id} style={styles.reviewCard}>
+                <View style={styles.reviewTopRow}>
+                  <View style={styles.reviewTitleWrap}>
+                    <Text style={styles.reviewPlace}>{post.placeName}</Text>
+                    <Text style={styles.reviewTime}>Just now</Text>
+                  </View>
+                  <View style={styles.reviewRating}>
+                    <Ionicons name="star" size={13} color="#f59e0b" />
+                    <Text style={styles.reviewRatingText}>{post.rating}</Text>
+                  </View>
+                </View>
+
+                {post.tags.length > 0 ? (
+                  <View style={styles.reviewTags}>
+                    {post.tags.map((tag) => (
+                      <View key={tag} style={styles.reviewTag}>
+                        <Text style={styles.reviewTagText}>{tag}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                <Text style={styles.reviewStory} numberOfLines={2}>
+                  {post.story || 'A quiet little night worth remembering.'}
+                </Text>
+              </View>
+            ))
+          )}
         </View>
 
         <View style={styles.sectionHeader}>
@@ -113,6 +159,41 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: '#111111', fontSize: 22, fontWeight: '900' },
   sectionHint: { color: '#8b5cf6', fontSize: 13, fontWeight: '800' },
+  reviewList: { width: '100%', marginTop: 14 },
+  reviewCard: {
+    marginBottom: 12,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    padding: 16,
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+  reviewTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  reviewTitleWrap: { flex: 1, paddingRight: 12 },
+  reviewPlace: { color: '#111111', fontSize: 17, fontWeight: '900' },
+  reviewTime: { marginTop: 4, color: '#a1a1aa', fontSize: 12, fontWeight: '700' },
+  reviewRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    backgroundColor: '#fff7ed',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  reviewRatingText: { color: '#f59e0b', fontSize: 12, fontWeight: '900' },
+  reviewTags: { marginTop: 13, flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  reviewTag: {
+    borderRadius: 999,
+    backgroundColor: '#f5f3ff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  reviewTagText: { color: '#7c3aed', fontSize: 11, fontWeight: '800' },
+  reviewStory: { marginTop: 12, color: '#52525b', fontSize: 13, lineHeight: 19, fontWeight: '600' },
   savedList: { width: '100%', marginTop: 14 },
   emptyCard: {
     alignItems: 'center',

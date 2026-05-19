@@ -11,3 +11,22 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uk_users_username (username),
     UNIQUE KEY uk_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS bars (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    external_id VARCHAR(100) DEFAULT NULL,
+    name VARCHAR(100) NOT NULL,
+    city VARCHAR(100) DEFAULT NULL,
+    address VARCHAR(255) DEFAULT NULL,
+    latitude DECIMAL(10, 7) DEFAULT NULL,
+    longitude DECIMAL(10, 7) DEFAULT NULL,
+    category VARCHAR(100) DEFAULT NULL,
+    rating DECIMAL(3, 1) DEFAULT NULL,
+    price_level INT DEFAULT NULL,
+    cover_image VARCHAR(500) DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_bars_external_id (external_id),
+    KEY idx_bars_city (city)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

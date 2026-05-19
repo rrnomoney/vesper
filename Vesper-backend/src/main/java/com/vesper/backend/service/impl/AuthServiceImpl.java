@@ -45,8 +45,11 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthVO login(LoginRequest request) {
         User user = findByUsernameOrEmail(request.getAccount());
-        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new BusinessException(401, "Invalid account or password");
+        if (user == null) {
+            throw new BusinessException(400, "Account does not exist");
+        }
+        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            throw new BusinessException(400, "Password is incorrect");
         }
 
         return buildAuthVO(user);
@@ -65,7 +68,7 @@ public class AuthServiceImpl implements AuthService {
         Long count = userMapper.selectCount(new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, username));
         if (count > 0) {
-            throw new BusinessException(409, "Username already exists");
+            throw new BusinessException(400, "Username already exists");
         }
     }
 
@@ -73,7 +76,7 @@ public class AuthServiceImpl implements AuthService {
         Long count = userMapper.selectCount(new LambdaQueryWrapper<User>()
                 .eq(User::getEmail, email));
         if (count > 0) {
-            throw new BusinessException(409, "Email already exists");
+            throw new BusinessException(400, "Email already exists");
         }
     }
 

@@ -30,3 +30,14 @@ CREATE TABLE IF NOT EXISTS bars (
     UNIQUE KEY uk_bars_external_id (external_id),
     KEY idx_bars_city (city)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS favorites (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    bar_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_favorites_user_bar (user_id, bar_id),
+    KEY idx_favorites_user_id (user_id),
+    KEY idx_favorites_bar_id (bar_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

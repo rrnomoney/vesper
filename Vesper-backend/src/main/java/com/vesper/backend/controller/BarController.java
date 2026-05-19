@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -19,8 +20,11 @@ public class BarController {
     private final BarService barService;
 
     @GetMapping
-    public Result<List<BarVO>> listBars() {
-        return Result.success(barService.listBars());
+    public Result<List<BarVO>> listBars(
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String keyword
+    ) {
+        return Result.success(barService.listBars(city, keyword));
     }
 
     @GetMapping("/{id}")

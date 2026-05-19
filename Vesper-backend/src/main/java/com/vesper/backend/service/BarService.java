@@ -6,7 +6,7 @@ import java.util.List;
 
 public interface BarService {
 
-    List<BarVO> listBars();
+    List<BarVO> listBars(String city, String keyword);
 
     BarVO getBarById(Long id);
 }

@@ -10,8 +10,16 @@ import { getAuthToken } from '../../lib/authSession';
 import { useSavedStore } from '../../stores/savedStore';
 import { useVisitedStore } from '../../stores/visitedStore';
 
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function isNumericId(value: string | undefined) {
+  return Boolean(value && /^\d+$/.test(value));
+}
+
 export default function BarDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<{ id?: string | string[] }>();
   const [bar, setBar] = useState<Bar | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -33,7 +41,9 @@ export default function BarDetailScreen() {
   const isVisitedSyncing = bar ? visitedSyncingBarIds.includes(bar.id) : false;
 
   async function loadBar() {
-    if (!id) {
+    const barId = firstParam(id);
+
+    if (!isNumericId(barId)) {
       setBar(null);
       setIsNotFound(true);
       setErrorMessage(null);
@@ -46,7 +56,7 @@ export default function BarDetailScreen() {
     setIsNotFound(false);
 
     try {
-      const nextBar = await getBarById(id);
+      const nextBar = await getBarById(barId as string);
       setBar(nextBar);
       setIsNotFound(!nextBar);
     } catch (error) {
@@ -162,11 +172,22 @@ export default function BarDetailScreen() {
     );
   }
 
+  const tags = Array.isArray(bar.tags) ? bar.tags : [];
+  const reviewHighlights = Array.isArray(bar.reviewHighlights) ? bar.reviewHighlights : [];
+  const title = bar.name || 'Vesper spot';
+  const heroImage =
+    bar.image || 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
+  const meta = [bar.type, bar.neighborhood, bar.distance].filter(Boolean).join(' - ');
+  const rating = Number.isFinite(Number(bar.rating)) ? Number(bar.rating).toFixed(1) : 'Rating pending';
+  const reviews = Number.isFinite(Number(bar.reviews)) && Number(bar.reviews) > 0 ? ` (${bar.reviews})` : '';
+  const price = bar.price || 'Price pending';
+  const about = bar.about || (bar.neighborhood ? `Located at ${bar.neighborhood}.` : 'Details coming soon.');
+
   return (
     <View style={styles.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.hero}>
-          <Image source={{ uri: bar.image }} style={styles.heroImage} />
+          <Image source={{ uri: heroImage }} style={styles.heroImage} />
           <SafeAreaView edges={['top']} style={styles.heroControls}>
             <Pressable style={styles.circleButton} onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={24} color="#18181b" />
@@ -183,7 +204,7 @@ export default function BarDetailScreen() {
 
         <View style={styles.body}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>{bar.name}</Text>
+            <Text style={styles.title}>{title}</Text>
             {isVisited ? (
               <View style={styles.visitedPill}>
                 <Ionicons name="sparkles" size={13} color="#ffffff" />
@@ -191,9 +212,7 @@ export default function BarDetailScreen() {
               </View>
             ) : null}
           </View>
-          <Text style={styles.meta}>
-            {bar.type} - {bar.neighborhood} - {bar.distance}
-          </Text>
+          {meta ? <Text style={styles.meta}>{meta}</Text> : null}
 
           {savedErrorMessage ? (
             <View style={styles.inlineError}>
@@ -211,15 +230,15 @@ export default function BarDetailScreen() {
 
           <View style={styles.statRow}>
             <View style={styles.statPill}>
-              <Text style={styles.rating}>★ {bar.rating} ({bar.reviews})</Text>
+              <Text style={styles.rating}>★{rating}{reviews}</Text>
             </View>
             <View style={styles.statPill}>
-              <Text style={styles.price}>{bar.price}</Text>
+              <Text style={styles.price}>{price}</Text>
             </View>
           </View>
 
           <View style={styles.tagRow}>
-            {bar.tags.map((tag) => (
+            {tags.map((tag) => (
               <View key={tag} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
               </View>
@@ -235,16 +254,16 @@ export default function BarDetailScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>About</Text>
-            <Text style={styles.about}>{bar.about}</Text>
+            <Text style={styles.about}>{about}</Text>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Reviews</Text>
-            {bar.reviewHighlights.map((review) => (
+            {reviewHighlights.map((review) => (
               <View key={review.id} style={styles.reviewCard}>
                 <View style={styles.reviewHeader}>
                   <Text style={styles.reviewAuthor}>{review.author}</Text>
-                  <Text style={styles.reviewRating}>★ {review.rating}</Text>
+                  <Text style={styles.reviewRating}>★{review.rating}</Text>
                 </View>
                 <Text style={styles.reviewText}>{review.text}</Text>
               </View>

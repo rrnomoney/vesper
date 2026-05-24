@@ -8,6 +8,7 @@ import type { Bar } from '../../data/bars';
 import { homeCategories } from '../../data/bars';
 import { getBars } from '../../lib/bars';
 import { getAuthToken } from '../../lib/authSession';
+import { pushBarDetail } from '../../lib/navigation';
 import { useSavedStore } from '../../stores/savedStore';
 import { useVisitedStore } from '../../stores/visitedStore';
 
@@ -91,7 +92,7 @@ export default function HomeScreen() {
               onPress={() => Alert.alert('Coming soon', 'City selection will be available later.')}
             >
               <Ionicons name="location" size={14} color="#8b5cf6" />
-              <Text style={styles.city}>Singapore</Text>
+              <Text style={styles.city}>Demo data</Text>
               <Ionicons name="chevron-down" size={14} color="#a1a1aa" />
             </Pressable>
           </View>
@@ -139,8 +140,8 @@ export default function HomeScreen() {
 
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.sectionTitle}>Popular Near You</Text>
-            <Text style={styles.sectionSubtitle}>Handpicked spots for tonight.</Text>
+            <Text style={styles.sectionTitle}>Available Bars</Text>
+            <Text style={styles.sectionSubtitle}>Demo places for the current integration build.</Text>
           </View>
           <Text style={styles.seeAll}>See all</Text>
         </View>
@@ -157,7 +158,7 @@ export default function HomeScreen() {
             <View style={styles.stateCard}>
               <ActivityIndicator color="#8b5cf6" />
               <Text style={styles.stateTitle}>Loading bars</Text>
-              <Text style={styles.stateText}>Finding tonight's nearby spots.</Text>
+              <Text style={styles.stateText}>Loading available demo bars.</Text>
             </View>
           ) : errorMessage ? (
             <View style={styles.stateCard}>
@@ -181,7 +182,7 @@ export default function HomeScreen() {
             const isSyncing = syncingBarIds.includes(bar.id);
 
             return (
-              <Pressable key={bar.id} style={styles.card} onPress={() => router.push(`/bar/${bar.id}`)}>
+              <Pressable key={bar.id} style={styles.card} onPress={() => pushBarDetail(bar.id)}>
                 <View style={styles.imageWrap}>
                   <Image source={{ uri: bar.image }} style={styles.image} />
                   <View style={styles.distanceBadge}>
@@ -221,7 +222,7 @@ export default function HomeScreen() {
                   </View>
 
                   <View style={styles.cardBottomRow}>
-                    <Text style={styles.rating}>★ {bar.rating} ({bar.reviews})</Text>
+                    <Text style={styles.rating}>★{bar.rating} ({bar.reviews})</Text>
                     <Text style={styles.price}>{bar.price}</Text>
                   </View>
                 </View>

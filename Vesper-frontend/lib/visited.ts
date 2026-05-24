@@ -2,8 +2,8 @@ import { apiDelete, apiGet, apiPost } from './api';
 import { mapBarVOToBar, type BarVO } from './bars';
 
 export async function getVisited() {
-  const bars = await apiGet<BarVO[]>('/visited', undefined, { auth: true });
-  return bars.map(mapBarVOToBar);
+  const bars = await apiGet<BarVO[] | null>('/visited', undefined, { auth: true });
+  return (Array.isArray(bars) ? bars : []).map(mapBarVOToBar);
 }
 
 export async function addVisited(barId: string | number) {

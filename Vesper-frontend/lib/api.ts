@@ -1,6 +1,6 @@
 import { getAuthToken, handleUnauthorized } from './authSession';
 
-export const API_BASE_URL = 'http://10.254.16.182:8080/api';
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://10.251.52.102:8080/api';
 
 export type ApiResult<T> = {
   code: number;

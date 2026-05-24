@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Tex
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../../data/bars';
+import { pushBarDetail } from '../../lib/navigation';
 import { useAuthStore } from '../../stores/authStore';
 import { usePostStore } from '../../stores/postStore';
 import { useSavedStore } from '../../stores/savedStore';
@@ -18,7 +19,7 @@ function BarListItem({
   action: React.ReactNode;
 }) {
   return (
-    <Pressable style={styles.savedCard} onPress={() => router.push(`/bar/${bar.id}`)}>
+    <Pressable style={styles.savedCard} onPress={() => pushBarDetail(bar.id)}>
       <Image source={{ uri: bar.image }} style={styles.savedImage} />
       <View style={styles.savedBody}>
         <Text style={styles.savedName}>{bar.name}</Text>
@@ -184,34 +185,38 @@ export default function ProfileScreen() {
               <Text style={styles.emptyText}>Share a night from Publish and it will appear here.</Text>
             </View>
           ) : (
-            posts.map((post) => (
-              <View key={post.id} style={styles.reviewCard}>
-                <View style={styles.reviewTopRow}>
-                  <View style={styles.reviewTitleWrap}>
-                    <Text style={styles.reviewPlace}>{post.placeName}</Text>
-                    <Text style={styles.reviewTime}>Just now</Text>
+            posts.map((post) => {
+              const tags = Array.isArray(post.tags) ? post.tags : [];
+
+              return (
+                <View key={post.id} style={styles.reviewCard}>
+                  <View style={styles.reviewTopRow}>
+                    <View style={styles.reviewTitleWrap}>
+                      <Text style={styles.reviewPlace}>{post.placeName}</Text>
+                      <Text style={styles.reviewTime}>Just now</Text>
+                    </View>
+                    <View style={styles.reviewRating}>
+                      <Ionicons name="star" size={13} color="#f59e0b" />
+                      <Text style={styles.reviewRatingText}>{post.rating}</Text>
+                    </View>
                   </View>
-                  <View style={styles.reviewRating}>
-                    <Ionicons name="star" size={13} color="#f59e0b" />
-                    <Text style={styles.reviewRatingText}>{post.rating}</Text>
-                  </View>
+
+                  {tags.length > 0 ? (
+                    <View style={styles.reviewTags}>
+                      {tags.map((tag) => (
+                        <View key={tag} style={styles.reviewTag}>
+                          <Text style={styles.reviewTagText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  <Text style={styles.reviewStory} numberOfLines={2}>
+                    {post.story || 'A quiet little night worth remembering.'}
+                  </Text>
                 </View>
-
-                {post.tags.length > 0 ? (
-                  <View style={styles.reviewTags}>
-                    {post.tags.map((tag) => (
-                      <View key={tag} style={styles.reviewTag}>
-                        <Text style={styles.reviewTagText}>{tag}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-
-                <Text style={styles.reviewStory} numberOfLines={2}>
-                  {post.story || 'A quiet little night worth remembering.'}
-                </Text>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
 

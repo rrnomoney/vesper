@@ -8,5 +8,6 @@
 **/*.log
 **/.env
 **/.env.*
+**/application-local.yml
 **/ios/
 **/android/

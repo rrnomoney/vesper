@@ -47,8 +47,8 @@ export function mapBarVOToBar(bar: BarVO): Bar {
     id: String(bar.id),
     name: bar.name,
     type: bar.category || 'Bar',
-    neighborhood: bar.address || bar.city || 'Singapore',
-    distance: bar.city || 'Singapore',
+    neighborhood: bar.address || bar.city || 'Demo data',
+    distance: bar.city || 'Available bars',
     rating: toNumber(bar.rating),
     reviews: 0,
     price: formatPrice(bar.priceLevel),
@@ -63,8 +63,8 @@ export function mapBarVOToBar(bar: BarVO): Bar {
 }
 
 export async function getBars(params?: GetBarsParams) {
-  const bars = await apiGet<BarVO[]>('/bars', params);
-  return bars.map(mapBarVOToBar);
+  const bars = await apiGet<BarVO[] | null>('/bars', params);
+  return (Array.isArray(bars) ? bars : []).map(mapBarVOToBar);
 }
 
 export async function getBarById(id: string | number) {

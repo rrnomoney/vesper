@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,6 +12,8 @@ import { usePostStore } from '../../stores/postStore';
 import { useReviewStore } from '../../stores/reviewStore';
 import { useSavedStore } from '../../stores/savedStore';
 import { useVisitedStore } from '../../stores/visitedStore';
+
+type ProfileSection = 'visited' | 'saved' | 'reviews';
 
 function BarListItem({
   bar,
@@ -36,6 +38,7 @@ function BarListItem({
 }
 
 export default function ProfileScreen() {
+  const [selectedSection, setSelectedSection] = useState<ProfileSection>('visited');
   const user = useAuthStore((state) => state.user);
   const isAuthInitializing = useAuthStore((state) => state.isInitializing);
   const logout = useAuthStore((state) => state.logout);
@@ -89,6 +92,14 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const activeSectionTitle =
+    selectedSection === 'visited' ? 'Visited Places' : selectedSection === 'saved' ? 'Saved Places' : 'My Reviews';
+  const activeSectionCount =
+    selectedSection === 'visited' ? visitedBars.length : selectedSection === 'saved' ? savedBars.length : myReviews.length;
+  const activeSectionHint = `${activeSectionCount} ${
+    selectedSection === 'visited' ? 'visited' : selectedSection === 'saved' ? 'saved' : 'reviews'
+  }`;
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -126,195 +137,203 @@ export default function ProfileScreen() {
         )}
 
         <View style={styles.statsCard}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{visitedBars.length}</Text>
-            <Text style={styles.statLabel}>Visited</Text>
-          </View>
+          <Pressable
+            style={[styles.statItem, selectedSection === 'visited' && styles.statItemActive]}
+            onPress={() => setSelectedSection('visited')}
+          >
+            <Text style={[styles.statValue, selectedSection === 'visited' && styles.statValueActive]}>{visitedBars.length}</Text>
+            <Text style={[styles.statLabel, selectedSection === 'visited' && styles.statLabelActive]}>Visited</Text>
+            <View style={[styles.statIndicator, selectedSection === 'visited' && styles.statIndicatorActive]} />
+          </Pressable>
           <View style={styles.divider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{savedBars.length}</Text>
-            <Text style={styles.statLabel}>Saved</Text>
-          </View>
+          <Pressable
+            style={[styles.statItem, selectedSection === 'saved' && styles.statItemActive]}
+            onPress={() => setSelectedSection('saved')}
+          >
+            <Text style={[styles.statValue, selectedSection === 'saved' && styles.statValueActive]}>{savedBars.length}</Text>
+            <Text style={[styles.statLabel, selectedSection === 'saved' && styles.statLabelActive]}>Saved</Text>
+            <View style={[styles.statIndicator, selectedSection === 'saved' && styles.statIndicatorActive]} />
+          </Pressable>
           <View style={styles.divider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{myReviews.length}</Text>
-            <Text style={styles.statLabel}>Reviews</Text>
+          <Pressable
+            style={[styles.statItem, selectedSection === 'reviews' && styles.statItemActive]}
+            onPress={() => setSelectedSection('reviews')}
+          >
+            <Text style={[styles.statValue, selectedSection === 'reviews' && styles.statValueActive]}>{myReviews.length}</Text>
+            <Text style={[styles.statLabel, selectedSection === 'reviews' && styles.statLabelActive]}>Reviews</Text>
+            <View style={[styles.statIndicator, selectedSection === 'reviews' && styles.statIndicatorActive]} />
+          </Pressable>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>{activeSectionTitle}</Text>
+          <Text style={styles.sectionHint}>{activeSectionHint}</Text>
+        </View>
+
+        {selectedSection === 'visited' ? (
+          <View style={styles.savedList}>
+            {!user ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="lock-closed-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Log in to view visited places</Text>
+                <Text style={styles.emptyText}>Your lit places will appear here after sign-in.</Text>
+              </View>
+            ) : isVisitedLoading ? (
+              <View style={styles.emptyCard}>
+                <ActivityIndicator color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Loading visited places</Text>
+                <Text style={styles.emptyText}>Fetching your lit places.</Text>
+              </View>
+            ) : visitedErrorMessage ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="warning-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Could not load visited places</Text>
+                <Text style={styles.emptyText}>{visitedErrorMessage}</Text>
+                <Pressable style={styles.retryButton} onPress={() => void loadVisited()}>
+                  <Text style={styles.retryText}>Try again</Text>
+                </Pressable>
+              </View>
+            ) : visitedBars.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="sparkles-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>No visited places yet</Text>
+                <Text style={styles.emptyText}>Light up a bar detail page and it will appear here.</Text>
+              </View>
+            ) : (
+              visitedBars.map((bar) => (
+                <BarListItem
+                  key={bar.id}
+                  bar={bar}
+                  action={
+                    <View style={styles.visitedStatus}>
+                      <Ionicons name="sparkles" size={14} color="#8b5cf6" />
+                      <Text style={styles.visitedStatusText}>Visited</Text>
+                    </View>
+                  }
+                />
+              ))
+            )}
           </View>
-        </View>
+        ) : null}
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Visited Places</Text>
-          <Text style={styles.sectionHint}>{visitedBars.length} visited</Text>
-        </View>
+        {selectedSection === 'saved' ? (
+          <View style={styles.savedList}>
+            {!user ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="lock-closed-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Log in to view saved places</Text>
+                <Text style={styles.emptyText}>Your backend favorites will appear here after sign-in.</Text>
+              </View>
+            ) : isSavedLoading ? (
+              <View style={styles.emptyCard}>
+                <ActivityIndicator color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Loading saved places</Text>
+                <Text style={styles.emptyText}>Fetching your bookmarks.</Text>
+              </View>
+            ) : savedErrorMessage ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="warning-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Could not load saved places</Text>
+                <Text style={styles.emptyText}>{savedErrorMessage}</Text>
+                <Pressable style={styles.retryButton} onPress={loadFavorites}>
+                  <Text style={styles.retryText}>Try again</Text>
+                </Pressable>
+              </View>
+            ) : savedBars.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="bookmark-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>No saved places yet</Text>
+                <Text style={styles.emptyText}>Tap a bookmark on Home or a bar detail page to save it here.</Text>
+              </View>
+            ) : (
+              savedBars.map((bar) => (
+                <BarListItem
+                  key={bar.id}
+                  bar={bar}
+                  action={
+                    <Pressable
+                      hitSlop={8}
+                      disabled={savedSyncingBarIds.includes(bar.id)}
+                      style={[styles.unsaveButton, savedSyncingBarIds.includes(bar.id) && styles.itemActionButtonDisabled]}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        void removeSavedBar(bar.id);
+                      }}
+                    >
+                      <Text style={styles.unsaveButtonText}>Unsave</Text>
+                    </Pressable>
+                  }
+                />
+              ))
+            )}
+          </View>
+        ) : null}
 
-        <View style={styles.savedList}>
-          {!user ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="lock-closed-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Log in to view visited places</Text>
-              <Text style={styles.emptyText}>Your lit places will appear here after sign-in.</Text>
-            </View>
-          ) : isVisitedLoading ? (
-            <View style={styles.emptyCard}>
-              <ActivityIndicator color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Loading visited places</Text>
-              <Text style={styles.emptyText}>Fetching your lit places.</Text>
-            </View>
-          ) : visitedErrorMessage ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="warning-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Could not load visited places</Text>
-              <Text style={styles.emptyText}>{visitedErrorMessage}</Text>
-              <Pressable style={styles.retryButton} onPress={() => void loadVisited()}>
-                <Text style={styles.retryText}>Try again</Text>
-              </Pressable>
-            </View>
-          ) : visitedBars.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="sparkles-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>No visited places yet</Text>
-              <Text style={styles.emptyText}>Light up a bar detail page and it will appear here.</Text>
-            </View>
-          ) : (
-            visitedBars.map((bar) => (
-              <BarListItem
-                key={bar.id}
-                bar={bar}
-                action={
-                  <View style={styles.visitedStatus}>
-                    <Ionicons name="sparkles" size={14} color="#8b5cf6" />
-                    <Text style={styles.visitedStatusText}>Visited</Text>
+        {selectedSection === 'reviews' ? (
+          <View style={styles.reviewList}>
+            {reviewsErrorMessage && myReviews.length > 0 ? (
+              <View style={styles.inlineReviewError}>
+                <Ionicons name="warning-outline" size={16} color="#8b5cf6" />
+                <Text style={styles.inlineReviewErrorText}>{reviewsErrorMessage}</Text>
+              </View>
+            ) : null}
+
+            {!user ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="lock-closed-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Log in to view reviews</Text>
+                <Text style={styles.emptyText}>Your backend reviews will appear here after sign-in.</Text>
+              </View>
+            ) : isReviewsLoading && myReviews.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <ActivityIndicator color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Loading reviews</Text>
+                <Text style={styles.emptyText}>Fetching your shared bar reviews.</Text>
+              </View>
+            ) : reviewsErrorMessage && myReviews.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="warning-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>Could not load reviews</Text>
+                <Text style={styles.emptyText}>{reviewsErrorMessage}</Text>
+                <Pressable style={styles.retryButton} onPress={() => void refreshMyReviews()}>
+                  <Text style={styles.retryText}>Try again</Text>
+                </Pressable>
+              </View>
+            ) : myReviews.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="chatbubble-ellipses-outline" size={24} color="#8b5cf6" />
+                <Text style={styles.emptyTitle}>No reviews yet</Text>
+                <Text style={styles.emptyText}>Write a review from a bar detail page and it will appear here.</Text>
+              </View>
+            ) : (
+              myReviews.map((review) => (
+                <Pressable key={review.id} style={styles.reviewCard} onPress={() => pushBarDetail(review.barId)}>
+                  <View style={styles.reviewTopRow}>
+                    <View style={styles.reviewTitleWrap}>
+                      <Text style={styles.reviewPlace}>{review.barName || 'Vesper spot'}</Text>
+                      <Text style={styles.reviewTime}>{review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recently'}</Text>
+                    </View>
+                    <View style={styles.reviewRating}>
+                      <Ionicons name="star" size={13} color="#f59e0b" />
+                      <Text style={styles.reviewRatingText}>{review.rating}</Text>
+                    </View>
                   </View>
-                }
-              />
-            ))
-          )}
-        </View>
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>My Reviews</Text>
-          <Text style={styles.sectionHint}>{myReviews.length} shared</Text>
-        </View>
-
-        <View style={styles.reviewList}>
-          {reviewsErrorMessage && myReviews.length > 0 ? (
-            <View style={styles.inlineReviewError}>
-              <Ionicons name="warning-outline" size={16} color="#8b5cf6" />
-              <Text style={styles.inlineReviewErrorText}>{reviewsErrorMessage}</Text>
-            </View>
-          ) : null}
-
-          {!user ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="lock-closed-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Log in to view reviews</Text>
-              <Text style={styles.emptyText}>Your backend reviews will appear here after sign-in.</Text>
-            </View>
-          ) : isReviewsLoading && myReviews.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <ActivityIndicator color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Loading reviews</Text>
-              <Text style={styles.emptyText}>Fetching your shared bar reviews.</Text>
-            </View>
-          ) : reviewsErrorMessage && myReviews.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="warning-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Could not load reviews</Text>
-              <Text style={styles.emptyText}>{reviewsErrorMessage}</Text>
-              <Pressable style={styles.retryButton} onPress={() => void refreshMyReviews()}>
-                <Text style={styles.retryText}>Try again</Text>
-              </Pressable>
-            </View>
-          ) : myReviews.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="chatbubble-ellipses-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>No reviews yet</Text>
-              <Text style={styles.emptyText}>Write a review from a bar detail page and it will appear here.</Text>
-            </View>
-          ) : (
-            myReviews.map((review) => (
-              <Pressable key={review.id} style={styles.reviewCard} onPress={() => pushBarDetail(review.barId)}>
-                <View style={styles.reviewTopRow}>
-                  <View style={styles.reviewTitleWrap}>
-                    <Text style={styles.reviewPlace}>{review.barName || 'Vesper spot'}</Text>
-                    <Text style={styles.reviewTime}>{review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recently'}</Text>
-                  </View>
-                  <View style={styles.reviewRating}>
-                    <Ionicons name="star" size={13} color="#f59e0b" />
-                    <Text style={styles.reviewRatingText}>{review.rating}</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.reviewStory} numberOfLines={2}>
-                  {review.content}
-                </Text>
-                {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 ? (
-                  <View style={styles.reviewImageGrid}>
-                    {review.imageUrls.slice(0, 3).map((imageUrl) => (
-                      <Image key={imageUrl} source={{ uri: resolveAssetUrl(imageUrl) }} style={styles.reviewImageThumb} />
-                    ))}
-                  </View>
-                ) : null}
-              </Pressable>
-            ))
-          )}
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Saved Places</Text>
-          <Text style={styles.sectionHint}>{savedBars.length} saved</Text>
-        </View>
-
-        <View style={styles.savedList}>
-          {!user ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="lock-closed-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Log in to view saved places</Text>
-              <Text style={styles.emptyText}>Your backend favorites will appear here after sign-in.</Text>
-            </View>
-          ) : isSavedLoading ? (
-            <View style={styles.emptyCard}>
-              <ActivityIndicator color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Loading saved places</Text>
-              <Text style={styles.emptyText}>Fetching your bookmarks.</Text>
-            </View>
-          ) : savedErrorMessage ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="warning-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>Could not load saved places</Text>
-              <Text style={styles.emptyText}>{savedErrorMessage}</Text>
-              <Pressable style={styles.retryButton} onPress={loadFavorites}>
-                <Text style={styles.retryText}>Try again</Text>
-              </Pressable>
-            </View>
-          ) : savedBars.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Ionicons name="bookmark-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>No saved places yet</Text>
-              <Text style={styles.emptyText}>Tap a bookmark on Home or a bar detail page to save it here.</Text>
-            </View>
-          ) : (
-            savedBars.map((bar) => (
-              <BarListItem
-                key={bar.id}
-                bar={bar}
-                action={
-                  <Pressable
-                    hitSlop={8}
-                    disabled={savedSyncingBarIds.includes(bar.id)}
-                    style={[styles.unsaveButton, savedSyncingBarIds.includes(bar.id) && styles.itemActionButtonDisabled]}
-                    onPress={(event) => {
-                      event.stopPropagation();
-                      void removeSavedBar(bar.id);
-                    }}
-                  >
-                    <Text style={styles.unsaveButtonText}>Unsave</Text>
-                  </Pressable>
-                }
-              />
-            ))
-          )}
-        </View>
+                  <Text style={styles.reviewStory} numberOfLines={2}>
+                    {review.content}
+                  </Text>
+                  {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 ? (
+                    <View style={styles.reviewImageGrid}>
+                      {review.imageUrls.slice(0, 3).map((imageUrl) => (
+                        <Image key={imageUrl} source={{ uri: resolveAssetUrl(imageUrl) }} style={styles.reviewImageThumb} />
+                      ))}
+                    </View>
+                  ) : null}
+                </Pressable>
+              ))
+            )}
+          </View>
+        ) : null}
 
         <Pressable style={styles.clearButton} onPress={confirmClearDemoData}>
           <Ionicons name="trash-outline" size={17} color="#be185d" />
@@ -392,9 +411,27 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 5,
   },
-  statItem: { flex: 1, alignItems: 'center' },
+  statItem: {
+    flex: 1,
+    minHeight: 82,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+    marginHorizontal: 8,
+  },
+  statItemActive: { backgroundColor: '#f5f3ff' },
   statValue: { color: '#111111', fontSize: 24, fontWeight: '900' },
+  statValueActive: { color: '#7c3aed' },
   statLabel: { marginTop: 5, color: '#71717a', fontSize: 12, fontWeight: '700' },
+  statLabelActive: { color: '#7c3aed' },
+  statIndicator: {
+    marginTop: 8,
+    width: 22,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: 'transparent',
+  },
+  statIndicatorActive: { backgroundColor: '#8b5cf6' },
   divider: { width: 1, height: 36, backgroundColor: '#f4f4f5' },
   sectionHeader: {
     width: '100%',

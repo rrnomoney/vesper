@@ -6,6 +6,8 @@ import com.vesper.backend.entity.User;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
 
 @Data
 public class ReviewVO {
@@ -28,7 +30,13 @@ public class ReviewVO {
 
     private LocalDateTime updatedAt;
 
+    private List<String> imageUrls = Collections.emptyList();
+
     public static ReviewVO from(Review review, Bar bar, User user) {
+        return from(review, bar, user, Collections.emptyList());
+    }
+
+    public static ReviewVO from(Review review, Bar bar, User user, List<String> imageUrls) {
         ReviewVO vo = new ReviewVO();
         vo.setId(review.getId());
         vo.setBarId(review.getBarId());
@@ -39,6 +47,7 @@ public class ReviewVO {
         vo.setContent(review.getContent());
         vo.setCreatedAt(review.getCreatedAt());
         vo.setUpdatedAt(review.getUpdatedAt());
+        vo.setImageUrls(imageUrls == null ? Collections.emptyList() : imageUrls);
         return vo;
     }
 }

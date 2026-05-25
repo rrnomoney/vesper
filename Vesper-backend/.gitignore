@@ -9,6 +9,7 @@ target/
 ### Logs ###
 logs/
 *.log
+uploads/
 
 ### OS ###
 .DS_Store

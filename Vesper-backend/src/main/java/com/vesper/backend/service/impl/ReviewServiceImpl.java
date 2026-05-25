@@ -9,6 +9,7 @@ import com.vesper.backend.exception.BusinessException;
 import com.vesper.backend.mapper.BarMapper;
 import com.vesper.backend.mapper.ReviewMapper;
 import com.vesper.backend.mapper.UserMapper;
+import com.vesper.backend.service.ReviewImageService;
 import com.vesper.backend.service.ReviewService;
 import com.vesper.backend.vo.ReviewVO;
 import com.vesper.backend.vo.UserVO;
@@ -32,6 +33,7 @@ public class ReviewServiceImpl implements ReviewService {
     private final ReviewMapper reviewMapper;
     private final BarMapper barMapper;
     private final UserMapper userMapper;
+    private final ReviewImageService reviewImageService;
 
     @Override
     @Transactional
@@ -49,10 +51,12 @@ public class ReviewServiceImpl implements ReviewService {
         review.setRating(request.getRating());
         review.setContent(content);
         reviewMapper.insert(review);
+        List<String> imageUrls = sanitizeImageUrls(request.getImageUrls());
+        reviewImageService.saveReviewImages(review.getId(), imageUrls);
 
         Review savedReview = reviewMapper.selectById(review.getId());
         User user = userMapper.selectById(userId);
-        return ReviewVO.from(savedReview, bar, user);
+        return ReviewVO.from(savedReview, bar, user, imageUrls);
     }
 
     @Override
@@ -66,8 +70,9 @@ public class ReviewServiceImpl implements ReviewService {
         }
 
         Map<Long, User> users = loadUsers(reviews);
+        Map<Long, List<String>> imageUrls = loadImageUrls(reviews);
         return reviews.stream()
-                .map(review -> ReviewVO.from(review, bar, users.get(review.getUserId())))
+                .map(review -> ReviewVO.from(review, bar, users.get(review.getUserId()), imageUrls.get(review.getId())))
                 .toList();
     }
 
@@ -83,8 +88,9 @@ public class ReviewServiceImpl implements ReviewService {
 
         User user = userMapper.selectById(userId);
         Map<Long, Bar> bars = loadBars(reviews);
+        Map<Long, List<String>> imageUrls = loadImageUrls(reviews);
         return reviews.stream()
-                .map(review -> ReviewVO.from(review, bars.get(review.getBarId()), user))
+                .map(review -> ReviewVO.from(review, bars.get(review.getBarId()), user, imageUrls.get(review.getId())))
                 .toList();
     }
 
@@ -101,7 +107,9 @@ public class ReviewServiceImpl implements ReviewService {
             throw new BusinessException(403, "You can only delete your own review");
         }
 
+        reviewImageService.deleteByReviewId(id);
         reviewMapper.deleteById(id);
+        // TODO: Delete local image files when object storage or file lifecycle management is added.
     }
 
     private Bar ensureBarExists(Long barId) {
@@ -128,6 +136,30 @@ public class ReviewServiceImpl implements ReviewService {
                 .toList();
         return barMapper.selectBatchIds(barIds).stream()
                 .collect(Collectors.toMap(Bar::getId, Function.identity()));
+    }
+
+    private Map<Long, List<String>> loadImageUrls(List<Review> reviews) {
+        List<Long> reviewIds = reviews.stream()
+                .map(Review::getId)
+                .distinct()
+                .toList();
+        return reviewImageService.listImageUrlsByReviewIds(reviewIds);
+    }
+
+    private List<String> sanitizeImageUrls(List<String> imageUrls) {
+        if (imageUrls == null || imageUrls.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> sanitized = imageUrls.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (sanitized.size() > 3) {
+            throw new BusinessException(400, "A review can include up to 3 images");
+        }
+        return sanitized;
     }
 
     private Long currentUserId() {

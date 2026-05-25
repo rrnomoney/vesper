@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../../data/bars';
 import { pushBarDetail } from '../../lib/navigation';
+import { resolveAssetUrl } from '../../lib/upload';
 import { useAuthStore } from '../../stores/authStore';
 import { usePostStore } from '../../stores/postStore';
 import { useReviewStore } from '../../stores/reviewStore';
@@ -247,6 +248,13 @@ export default function ProfileScreen() {
                 <Text style={styles.reviewStory} numberOfLines={2}>
                   {review.content}
                 </Text>
+                {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 ? (
+                  <View style={styles.reviewImageGrid}>
+                    {review.imageUrls.slice(0, 3).map((imageUrl) => (
+                      <Image key={imageUrl} source={{ uri: resolveAssetUrl(imageUrl) }} style={styles.reviewImageThumb} />
+                    ))}
+                  </View>
+                ) : null}
               </Pressable>
             ))
           )}
@@ -443,6 +451,8 @@ const styles = StyleSheet.create({
   },
   reviewTagText: { color: '#7c3aed', fontSize: 11, fontWeight: '800' },
   reviewStory: { marginTop: 12, color: '#52525b', fontSize: 13, lineHeight: 19, fontWeight: '600' },
+  reviewImageGrid: { marginTop: 12, flexDirection: 'row', gap: 8 },
+  reviewImageThumb: { width: 68, height: 68, borderRadius: 14, backgroundColor: '#f4f4f5' },
   savedList: { width: '100%', marginTop: 14 },
   emptyCard: {
     alignItems: 'center',

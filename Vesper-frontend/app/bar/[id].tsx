@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -14,6 +15,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,6 +25,7 @@ import type { Bar } from '../../data/bars';
 import { getBarById } from '../../lib/bars';
 import { getAuthToken } from '../../lib/authSession';
 import { createReview, getBarReviews, type ReviewVO } from '../../lib/reviews';
+import { resolveAssetUrl, uploadImage, type UploadImageInput } from '../../lib/upload';
 import { useReviewStore } from '../../stores/reviewStore';
 import { useSavedStore } from '../../stores/savedStore';
 import { useVisitedStore } from '../../stores/visitedStore';
@@ -35,8 +38,13 @@ function isNumericId(value: string | undefined) {
   return Boolean(value && /^\d+$/.test(value));
 }
 
+type SelectedReviewImage = UploadImageInput & {
+  id: string;
+};
+
 export default function BarDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+  const { height: screenHeight } = useWindowDimensions();
   const [bar, setBar] = useState<Bar | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -47,6 +55,7 @@ export default function BarDetailScreen() {
   const [isReviewModalVisible, setIsReviewModalVisible] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewContent, setReviewContent] = useState('');
+  const [selectedImages, setSelectedImages] = useState<SelectedReviewImage[]>([]);
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
   const addMyReview = useReviewStore((state) => state.addMyReview);
   const visitedBarIds = useVisitedStore((state) => state.visitedBarIds);
@@ -139,12 +148,50 @@ export default function BarDetailScreen() {
 
     setReviewRating(5);
     setReviewContent('');
+    setSelectedImages([]);
     setIsReviewModalVisible(true);
   }
 
   function closeReviewModal() {
     Keyboard.dismiss();
     setIsReviewModalVisible(false);
+  }
+
+  async function handleAddPhotosPress() {
+    if (selectedImages.length >= 3) {
+      Alert.alert('Photo limit reached', 'You can add up to 3 photos to a review.');
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Please allow photo access to add images.');
+      return;
+    }
+
+    const remainingSlots = 3 - selectedImages.length;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      selectionLimit: remainingSlots,
+      quality: 0.85,
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    const nextImages = result.assets.slice(0, remainingSlots).map((asset) => ({
+      id: `${asset.assetId || asset.uri}-${Date.now()}-${Math.random()}`,
+      uri: asset.uri,
+      name: asset.fileName,
+      type: asset.mimeType,
+    }));
+    setSelectedImages((currentImages) => [...currentImages, ...nextImages].slice(0, 3));
+  }
+
+  function removeSelectedImage(id: string) {
+    setSelectedImages((currentImages) => currentImages.filter((image) => image.id !== id));
   }
 
   async function handleSubmitReview() {
@@ -171,15 +218,18 @@ export default function BarDetailScreen() {
     setIsReviewSubmitting(true);
 
     try {
+      const imageUrls = selectedImages.length > 0 ? await Promise.all(selectedImages.map(uploadImage)) : [];
       const newReview = await createReview({
         barId: Number(bar.id),
         rating: reviewRating,
         content,
+        imageUrls,
       });
       addMyReview(newReview);
       Keyboard.dismiss();
       setIsReviewModalVisible(false);
       setReviewContent('');
+      setSelectedImages([]);
       await loadReviews();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to submit review.';
@@ -405,6 +455,13 @@ export default function BarDetailScreen() {
                     <Text style={styles.reviewRating}>★{review.rating}/5</Text>
                   </View>
                   <Text style={styles.reviewText}>{review.content}</Text>
+                  {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 ? (
+                    <View style={styles.reviewImageGrid}>
+                      {review.imageUrls.slice(0, 3).map((imageUrl) => (
+                        <Image key={imageUrl} source={{ uri: resolveAssetUrl(imageUrl) }} style={styles.reviewImageThumb} />
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
               ))
             )}
@@ -414,8 +471,8 @@ export default function BarDetailScreen() {
 
       <Modal visible={isReviewModalVisible} transparent animationType="fade" onRequestClose={closeReviewModal}>
         <Pressable style={styles.modalOverlay} onPress={Keyboard.dismiss}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboardAvoider}>
-          <Pressable style={styles.modalCard} onPress={Keyboard.dismiss}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalKeyboardAvoider}>
+          <Pressable style={[styles.modalCard, { maxHeight: screenHeight * 0.85 }]} onPress={(event) => event.stopPropagation()}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Write review</Text>
               <Pressable style={styles.modalCloseButton} onPress={closeReviewModal}>
@@ -423,32 +480,66 @@ export default function BarDetailScreen() {
               </Pressable>
             </View>
 
-            <Text style={styles.modalLabel}>Rating</Text>
-            <View style={styles.modalRatingRow}>
-              <RatingPicker value={reviewRating} onChange={setReviewRating} size={25} buttonSize={42} gap={8} />
-            </View>
-
-            <Text style={styles.modalLabel}>Content</Text>
-            <TextInput
-              value={reviewContent}
-              onChangeText={setReviewContent}
-              placeholder="Great atmosphere and cocktails."
-              placeholderTextColor="#a1a1aa"
-              multiline
-              maxLength={500}
-              blurOnSubmit
-              textAlignVertical="top"
-              style={styles.reviewInput}
-            />
-            <Text style={styles.characterCount}>{reviewContent.length}/500</Text>
-
-            <Pressable
-              disabled={isReviewSubmitting}
-              style={[styles.submitReviewButton, isReviewSubmitting && styles.submitReviewButtonDisabled]}
-              onPress={() => void handleSubmitReview()}
+            <ScrollView
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
             >
-              {isReviewSubmitting ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitReviewText}>Submit</Text>}
-            </Pressable>
+              <Pressable onPress={Keyboard.dismiss}>
+              <Text style={styles.modalLabel}>Rating</Text>
+              <View style={styles.modalRatingRow}>
+                <RatingPicker value={reviewRating} onChange={setReviewRating} size={25} buttonSize={42} gap={8} />
+              </View>
+
+              <Text style={styles.modalLabel}>Content</Text>
+              <TextInput
+                value={reviewContent}
+                onChangeText={setReviewContent}
+                placeholder="Great atmosphere and cocktails."
+                placeholderTextColor="#a1a1aa"
+                multiline
+                maxLength={500}
+                blurOnSubmit
+                textAlignVertical="top"
+                style={styles.reviewInput}
+              />
+              <Text style={styles.characterCount}>{reviewContent.length}/500</Text>
+
+              <View style={styles.photoHeader}>
+                <Text style={styles.modalLabel}>Photos</Text>
+                <Text style={styles.photoLimitText}>{selectedImages.length}/3</Text>
+              </View>
+              <Pressable
+                disabled={selectedImages.length >= 3 || isReviewSubmitting}
+                style={[styles.addPhotoButton, (selectedImages.length >= 3 || isReviewSubmitting) && styles.addPhotoButtonDisabled]}
+                onPress={() => void handleAddPhotosPress()}
+              >
+                <Ionicons name="image-outline" size={18} color="#7c3aed" />
+                <Text style={styles.addPhotoText}>Add photos</Text>
+              </Pressable>
+              {selectedImages.length > 0 ? (
+                <View style={styles.selectedImageGrid}>
+                  {selectedImages.map((image) => (
+                    <View key={image.id} style={styles.selectedImageWrap}>
+                      <Image source={{ uri: image.uri }} style={styles.selectedImage} />
+                      <Pressable style={styles.removeImageButton} onPress={() => removeSelectedImage(image.id)}>
+                        <Ionicons name="close" size={14} color="#ffffff" />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              <Pressable
+                disabled={isReviewSubmitting}
+                style={[styles.submitReviewButton, isReviewSubmitting && styles.submitReviewButtonDisabled]}
+                onPress={() => void handleSubmitReview()}
+              >
+                {isReviewSubmitting ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitReviewText}>Submit</Text>}
+              </Pressable>
+              </Pressable>
+            </ScrollView>
           </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
@@ -615,17 +706,21 @@ const styles = StyleSheet.create({
   reviewAuthor: { color: '#18181b', fontSize: 15, fontWeight: '900' },
   reviewRating: { color: '#f59e0b', fontSize: 13, fontWeight: '900' },
   reviewText: { marginTop: 8, color: '#52525b', fontSize: 14, lineHeight: 21 },
+  reviewImageGrid: { marginTop: 12, flexDirection: 'row', gap: 8 },
+  reviewImageThumb: { width: 76, height: 76, borderRadius: 14, backgroundColor: '#f4f4f5' },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     backgroundColor: 'rgba(24,24,27,0.42)',
     paddingHorizontal: 20,
+    paddingVertical: 24,
   },
   modalKeyboardAvoider: { width: '100%' },
   modalCard: {
     borderRadius: 26,
     backgroundColor: '#fffdfc',
     padding: 18,
+    overflow: 'hidden',
   },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   modalTitle: { color: '#111111', fontSize: 22, fontWeight: '900' },
@@ -638,6 +733,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f4f4f5',
   },
   modalLabel: { marginTop: 18, color: '#27272a', fontSize: 13, fontWeight: '900' },
+  modalScrollContent: { paddingBottom: 4 },
   modalRatingRow: { marginTop: 10, flexDirection: 'row', gap: 8 },
   reviewInput: {
     marginTop: 10,
@@ -652,6 +748,36 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   characterCount: { marginTop: 6, color: '#a1a1aa', fontSize: 12, fontWeight: '700', textAlign: 'right' },
+  photoHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  photoLimitText: { marginTop: 18, color: '#a1a1aa', fontSize: 12, fontWeight: '800' },
+  addPhotoButton: {
+    marginTop: 10,
+    height: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    borderRadius: 23,
+    backgroundColor: '#f5f3ff',
+    borderWidth: 1,
+    borderColor: '#ede9fe',
+  },
+  addPhotoButtonDisabled: { opacity: 0.55 },
+  addPhotoText: { color: '#7c3aed', fontSize: 13, fontWeight: '900' },
+  selectedImageGrid: { marginTop: 12, flexDirection: 'row', gap: 10 },
+  selectedImageWrap: { position: 'relative' },
+  selectedImage: { width: 74, height: 74, borderRadius: 16, backgroundColor: '#f4f4f5' },
+  removeImageButton: {
+    position: 'absolute',
+    right: -6,
+    top: -6,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: '#18181b',
+  },
   submitReviewButton: {
     marginTop: 16,
     height: 52,

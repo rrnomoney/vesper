@@ -17,14 +17,21 @@ function getMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Unable to load reviews.';
 }
 
+function normalizeReview(review: ReviewVO): ReviewVO {
+  return {
+    ...review,
+    imageUrls: Array.isArray(review.imageUrls) ? review.imageUrls : [],
+  };
+}
+
 export const useReviewStore = create<ReviewState>()((set, get) => ({
   myReviews: [],
   isLoading: false,
   errorMessage: null,
-  setMyReviews: (reviews) => set({ myReviews: Array.isArray(reviews) ? reviews : [], errorMessage: null }),
+  setMyReviews: (reviews) => set({ myReviews: Array.isArray(reviews) ? reviews.map(normalizeReview) : [], errorMessage: null }),
   addMyReview: (review) =>
     set((state) => ({
-      myReviews: [review, ...state.myReviews.filter((item) => item.id !== review.id)],
+      myReviews: [normalizeReview(review), ...state.myReviews.filter((item) => item.id !== review.id)],
       errorMessage: null,
     })),
   refreshMyReviews: async (options) => {

@@ -7,6 +7,9 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.util.Collections;
+import java.util.List;
+
 @Data
 public class CreateReviewRequest {
 
@@ -21,4 +24,7 @@ public class CreateReviewRequest {
     @NotBlank
     @Size(max = 500)
     private String content;
+
+    @Size(max = 3)
+    private List<String> imageUrls = Collections.emptyList();
 }

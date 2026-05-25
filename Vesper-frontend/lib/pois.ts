@@ -1,4 +1,5 @@
-import { apiGet } from './api';
+import { apiGet, apiPost } from './api';
+import { mapBarVOToBar, type BarVO } from './bars';
 import type { Bar } from '../data/bars';
 
 export type PoiVO = {
@@ -16,6 +17,16 @@ export type PoiVO = {
 export type NearbyBarsParams = {
   lat: number;
   lng: number;
+};
+
+export type ImportPoiPayload = {
+  externalId: string;
+  name: string;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  category: string | null;
+  coverImage: string | null;
 };
 
 const fallbackCoverImage =
@@ -72,4 +83,9 @@ export function mapPoiToBar(poi: PoiVO): PoiBar {
 export async function getNearbyBars(params: NearbyBarsParams) {
   const pois = await apiGet<PoiVO[] | null>('/pois/nearby-bars', params);
   return (Array.isArray(pois) ? pois : []).map(mapPoiToBar);
+}
+
+export async function importPoi(payload: ImportPoiPayload) {
+  const bar = await apiPost<BarVO>('/pois/import', payload);
+  return mapBarVOToBar(bar);
 }

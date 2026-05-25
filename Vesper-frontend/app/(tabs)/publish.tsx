@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { RatingPicker } from '../../components/RatingPicker';
 import { usePostStore } from '../../stores/postStore';
 
 const moodTags = ['Cocktail', 'Rooftop', 'Speakeasy', 'Live Music', 'Club', 'Date Night'];
@@ -23,6 +24,7 @@ export default function PublishScreen() {
   };
 
   const handleShare = () => {
+    // TODO: Later wire Publish to POST /api/reviews when bar selection uses backend IDs.
     addPost({
       id: `${Date.now()}`,
       placeName: barName.trim() || 'Untitled place',
@@ -36,7 +38,7 @@ export default function PublishScreen() {
 
   const handleRatingPress = (star: number) => {
     setShared(false);
-    setRating((currentRating) => (currentRating === star ? star - 1 : star));
+    setRating(star);
   };
 
   return (
@@ -73,20 +75,7 @@ export default function PublishScreen() {
 
           <Text style={[styles.label, styles.sectionLabel]}>Rating</Text>
           <View style={styles.ratingRow}>
-            {[1, 2, 3, 4, 5].map((star) => {
-              const isSelected = star <= rating;
-
-              return (
-                <Pressable
-                  key={star}
-                  hitSlop={8}
-                  style={[styles.starButton, isSelected && styles.starButtonActive]}
-                  onPress={() => handleRatingPress(star)}
-                >
-                  <Ionicons name={isSelected ? 'star' : 'star-outline'} size={22} color="#f59e0b" />
-                </Pressable>
-              );
-            })}
+            <RatingPicker value={rating} onChange={handleRatingPress} />
           </View>
 
           <Text style={[styles.label, styles.sectionLabel]}>Vibe tags</Text>
@@ -187,15 +176,6 @@ const styles = StyleSheet.create({
   },
   input: { marginLeft: 10, flex: 1, color: '#18181b', fontSize: 15, fontWeight: '600' },
   ratingRow: { marginTop: 12, flexDirection: 'row', gap: 9 },
-  starButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-    backgroundColor: '#fafafa',
-  },
-  starButtonActive: { backgroundColor: '#fff7ed' },
   tagGrid: { marginTop: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tag: {
     borderRadius: 999,

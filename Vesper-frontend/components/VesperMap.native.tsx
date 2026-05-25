@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../data/bars';
 import { pushBarDetail } from '../lib/navigation';
-import { getNearbyBars, type PoiBar } from '../lib/pois';
+import { getNearbyBars, importPoi, type PoiBar } from '../lib/pois';
 import { useCheckInStore } from '../stores/checkInStore';
 
 type MapCoordinate = {
@@ -32,6 +32,7 @@ export default function MapScreen() {
   const [userCoordinate, setUserCoordinate] = useState<MapCoordinate | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [importingPoiId, setImportingPoiId] = useState<string | null>(null);
 
   const validBars = useMemo<ValidMapBar[]>(
     () =>
@@ -104,13 +105,36 @@ export default function MapScreen() {
     };
   }, []);
 
-  const openBarDetails = (bar: MapBar) => {
-    if (bar.id.startsWith('amap:')) {
-      setStatusMessage('Details for AMap places are coming soon.');
+  const openBarDetails = async (bar: MapBar) => {
+    if (!bar.id.startsWith('amap:')) {
+      pushBarDetail(bar.id);
       return;
     }
 
-    pushBarDetail(bar.id);
+    if (importingPoiId === bar.id) {
+      return;
+    }
+
+    setImportingPoiId(bar.id);
+    setStatusMessage('');
+
+    try {
+      const importedBar = await importPoi({
+        externalId: bar.id.replace(/^amap:/, ''),
+        name: bar.name,
+        address: bar.neighborhood,
+        latitude: bar.latitude,
+        longitude: bar.longitude,
+        category: bar.type,
+        coverImage: bar.image,
+      });
+      pushBarDetail(importedBar.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to open details.';
+      setStatusMessage(message);
+    } finally {
+      setImportingPoiId(null);
+    }
   };
 
   const moveToUserLocation = async () => {
@@ -198,7 +222,7 @@ export default function MapScreen() {
       </SafeAreaView>
 
       {selectedBar ? (
-        <Pressable style={styles.previewCard} onPress={() => openBarDetails(selectedBar)}>
+        <Pressable style={styles.previewCard} onPress={() => void openBarDetails(selectedBar)}>
           <View style={styles.previewImageWrap}>
             <Image source={{ uri: selectedBar.image }} style={styles.previewImage} />
           </View>
@@ -227,16 +251,17 @@ export default function MapScreen() {
               <Text style={styles.price}>{selectedBar.price}</Text>
             </View>
 
-            {selectedBar.id.startsWith('amap:') ? (
-              <View style={styles.poiNotice}>
-                <Text style={styles.poiNoticeText}>Details coming soon</Text>
-              </View>
-            ) : (
-              <Pressable style={styles.detailsButton} onPress={() => openBarDetails(selectedBar)}>
-                <Text style={styles.detailsButtonText}>View details</Text>
-                <Ionicons name="chevron-forward" size={14} color="#ffffff" />
-              </Pressable>
-            )}
+            <Pressable
+              disabled={importingPoiId === selectedBar.id}
+              style={[styles.detailsButton, importingPoiId === selectedBar.id && styles.detailsButtonDisabled]}
+              onPress={(event) => {
+                event.stopPropagation();
+                void openBarDetails(selectedBar);
+              }}
+            >
+              <Text style={styles.detailsButtonText}>{importingPoiId === selectedBar.id ? 'Opening...' : 'View details'}</Text>
+              <Ionicons name="chevron-forward" size={14} color="#ffffff" />
+            </Pressable>
           </View>
         </Pressable>
       ) : null}
@@ -376,15 +401,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827',
     paddingHorizontal: 14,
   },
+  detailsButtonDisabled: { opacity: 0.68 },
   detailsButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
-  poiNotice: {
-    marginTop: 8,
-    height: 38,
-    alignSelf: 'flex-start',
-    justifyContent: 'center',
-    borderRadius: 19,
-    backgroundColor: '#f4f4f5',
-    paddingHorizontal: 14,
-  },
-  poiNoticeText: { color: '#71717a', fontSize: 13, fontWeight: '900' },
 });

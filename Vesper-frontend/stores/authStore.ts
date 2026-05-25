@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import { getMe, login, register, type LoginPayload, type RegisterPayload, type UserVO } from '../lib/auth';
 import { clearAuthToken, restoreAuthToken, setAuthToken, setUnauthorizedHandler } from '../lib/authSession';
+import { useReviewStore } from './reviewStore';
 import { useSavedStore } from './savedStore';
 import { useVisitedStore } from './visitedStore';
 
@@ -76,6 +77,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
     },
     logout: async () => {
       await clearAuthToken();
+      useReviewStore.getState().clearMyReviews();
       useSavedStore.getState().clearSavedBars();
       useVisitedStore.getState().clearVisitedBars();
       set({ user: null, isLoading: false, errorMessage: null });

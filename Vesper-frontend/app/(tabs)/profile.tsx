@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useEffect } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../../data/bars';
 import { pushBarDetail } from '../../lib/navigation';
+import { resolveAssetUrl } from '../../lib/upload';
 import { useAuthStore } from '../../stores/authStore';
 import { usePostStore } from '../../stores/postStore';
+import { useReviewStore } from '../../stores/reviewStore';
 import { useSavedStore } from '../../stores/savedStore';
 import { useVisitedStore } from '../../stores/visitedStore';
 
@@ -37,7 +39,6 @@ export default function ProfileScreen() {
   const user = useAuthStore((state) => state.user);
   const isAuthInitializing = useAuthStore((state) => state.isInitializing);
   const logout = useAuthStore((state) => state.logout);
-  const posts = usePostStore((state) => state.posts);
   const clearPosts = usePostStore((state) => state.clearPosts);
   const visitedBars = useVisitedStore((state) => state.visitedBars);
   const isVisitedLoading = useVisitedStore((state) => state.isLoading);
@@ -49,13 +50,31 @@ export default function ProfileScreen() {
   const loadFavorites = useSavedStore((state) => state.loadFavorites);
   const removeSavedBar = useSavedStore((state) => state.removeSavedBar);
   const savedSyncingBarIds = useSavedStore((state) => state.syncingBarIds);
+  const myReviews = useReviewStore((state) => state.myReviews);
+  const isReviewsLoading = useReviewStore((state) => state.isLoading);
+  const reviewsErrorMessage = useReviewStore((state) => state.errorMessage);
+  const refreshMyReviews = useReviewStore((state) => state.refreshMyReviews);
+  const clearMyReviews = useReviewStore((state) => state.clearMyReviews);
 
   useEffect(() => {
-    if (user) {
+    if (!user && !isAuthInitializing) {
+      clearMyReviews();
+    }
+  }, [clearMyReviews, isAuthInitializing, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user || isAuthInitializing) {
+        return undefined;
+      }
+
       void loadFavorites();
       void loadVisited();
-    }
-  }, [user]);
+      void refreshMyReviews({ showLoading: myReviews.length === 0 });
+
+      return undefined;
+    }, [isAuthInitializing, loadFavorites, loadVisited, myReviews.length, refreshMyReviews, user]),
+  );
 
   const confirmClearDemoData = () => {
     Alert.alert('Clear local demo data?', 'This will reset local reviews. Backend favorites and visited places will stay saved.', [
@@ -118,7 +137,7 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.divider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{posts.length}</Text>
+            <Text style={styles.statValue}>{myReviews.length}</Text>
             <Text style={styles.statLabel}>Reviews</Text>
           </View>
         </View>
@@ -174,49 +193,70 @@ export default function ProfileScreen() {
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Reviews</Text>
-          <Text style={styles.sectionHint}>{posts.length} shared</Text>
+          <Text style={styles.sectionHint}>{myReviews.length} shared</Text>
         </View>
 
         <View style={styles.reviewList}>
-          {posts.length === 0 ? (
+          {reviewsErrorMessage && myReviews.length > 0 ? (
+            <View style={styles.inlineReviewError}>
+              <Ionicons name="warning-outline" size={16} color="#8b5cf6" />
+              <Text style={styles.inlineReviewErrorText}>{reviewsErrorMessage}</Text>
+            </View>
+          ) : null}
+
+          {!user ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="lock-closed-outline" size={24} color="#8b5cf6" />
+              <Text style={styles.emptyTitle}>Log in to view reviews</Text>
+              <Text style={styles.emptyText}>Your backend reviews will appear here after sign-in.</Text>
+            </View>
+          ) : isReviewsLoading && myReviews.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <ActivityIndicator color="#8b5cf6" />
+              <Text style={styles.emptyTitle}>Loading reviews</Text>
+              <Text style={styles.emptyText}>Fetching your shared bar reviews.</Text>
+            </View>
+          ) : reviewsErrorMessage && myReviews.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="warning-outline" size={24} color="#8b5cf6" />
+              <Text style={styles.emptyTitle}>Could not load reviews</Text>
+              <Text style={styles.emptyText}>{reviewsErrorMessage}</Text>
+              <Pressable style={styles.retryButton} onPress={() => void refreshMyReviews()}>
+                <Text style={styles.retryText}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : myReviews.length === 0 ? (
             <View style={styles.emptyCard}>
               <Ionicons name="chatbubble-ellipses-outline" size={24} color="#8b5cf6" />
-              <Text style={styles.emptyTitle}>No stories yet</Text>
-              <Text style={styles.emptyText}>Share a night from Publish and it will appear here.</Text>
+              <Text style={styles.emptyTitle}>No reviews yet</Text>
+              <Text style={styles.emptyText}>Write a review from a bar detail page and it will appear here.</Text>
             </View>
           ) : (
-            posts.map((post) => {
-              const tags = Array.isArray(post.tags) ? post.tags : [];
-
-              return (
-                <View key={post.id} style={styles.reviewCard}>
-                  <View style={styles.reviewTopRow}>
-                    <View style={styles.reviewTitleWrap}>
-                      <Text style={styles.reviewPlace}>{post.placeName}</Text>
-                      <Text style={styles.reviewTime}>Just now</Text>
-                    </View>
-                    <View style={styles.reviewRating}>
-                      <Ionicons name="star" size={13} color="#f59e0b" />
-                      <Text style={styles.reviewRatingText}>{post.rating}</Text>
-                    </View>
+            myReviews.map((review) => (
+              <Pressable key={review.id} style={styles.reviewCard} onPress={() => pushBarDetail(review.barId)}>
+                <View style={styles.reviewTopRow}>
+                  <View style={styles.reviewTitleWrap}>
+                    <Text style={styles.reviewPlace}>{review.barName || 'Vesper spot'}</Text>
+                    <Text style={styles.reviewTime}>{review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recently'}</Text>
                   </View>
-
-                  {tags.length > 0 ? (
-                    <View style={styles.reviewTags}>
-                      {tags.map((tag) => (
-                        <View key={tag} style={styles.reviewTag}>
-                          <Text style={styles.reviewTagText}>{tag}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-
-                  <Text style={styles.reviewStory} numberOfLines={2}>
-                    {post.story || 'A quiet little night worth remembering.'}
-                  </Text>
+                  <View style={styles.reviewRating}>
+                    <Ionicons name="star" size={13} color="#f59e0b" />
+                    <Text style={styles.reviewRatingText}>{review.rating}</Text>
+                  </View>
                 </View>
-              );
-            })
+
+                <Text style={styles.reviewStory} numberOfLines={2}>
+                  {review.content}
+                </Text>
+                {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 ? (
+                  <View style={styles.reviewImageGrid}>
+                    {review.imageUrls.slice(0, 3).map((imageUrl) => (
+                      <Image key={imageUrl} source={{ uri: resolveAssetUrl(imageUrl) }} style={styles.reviewImageThumb} />
+                    ))}
+                  </View>
+                ) : null}
+              </Pressable>
+            ))
           )}
         </View>
 
@@ -366,6 +406,17 @@ const styles = StyleSheet.create({
   sectionTitle: { color: '#111111', fontSize: 22, fontWeight: '900' },
   sectionHint: { color: '#8b5cf6', fontSize: 13, fontWeight: '800' },
   reviewList: { width: '100%', marginTop: 14 },
+  inlineReviewError: {
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 18,
+    backgroundColor: '#f5f3ff',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  inlineReviewErrorText: { flex: 1, color: '#6d28d9', fontSize: 12, fontWeight: '700' },
   reviewCard: {
     marginBottom: 12,
     borderRadius: 24,
@@ -400,6 +451,8 @@ const styles = StyleSheet.create({
   },
   reviewTagText: { color: '#7c3aed', fontSize: 11, fontWeight: '800' },
   reviewStory: { marginTop: 12, color: '#52525b', fontSize: 13, lineHeight: 19, fontWeight: '600' },
+  reviewImageGrid: { marginTop: 12, flexDirection: 'row', gap: 8 },
+  reviewImageThumb: { width: 68, height: 68, borderRadius: 14, backgroundColor: '#f4f4f5' },
   savedList: { width: '100%', marginTop: 14 },
   emptyCard: {
     alignItems: 'center',

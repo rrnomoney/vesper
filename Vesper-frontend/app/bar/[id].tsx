@@ -1,12 +1,29 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { RatingPicker } from '../../components/RatingPicker';
 import type { Bar } from '../../data/bars';
 import { getBarById } from '../../lib/bars';
 import { getAuthToken } from '../../lib/authSession';
+import { createReview, getBarReviews, type ReviewVO } from '../../lib/reviews';
+import { useReviewStore } from '../../stores/reviewStore';
 import { useSavedStore } from '../../stores/savedStore';
 import { useVisitedStore } from '../../stores/visitedStore';
 
@@ -24,6 +41,14 @@ export default function BarDetailScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
+  const [reviews, setReviews] = useState<ReviewVO[]>([]);
+  const [isReviewsLoading, setIsReviewsLoading] = useState(false);
+  const [reviewsErrorMessage, setReviewsErrorMessage] = useState<string | null>(null);
+  const [isReviewModalVisible, setIsReviewModalVisible] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewContent, setReviewContent] = useState('');
+  const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
+  const addMyReview = useReviewStore((state) => state.addMyReview);
   const visitedBarIds = useVisitedStore((state) => state.visitedBarIds);
   const visitedErrorMessage = useVisitedStore((state) => state.errorMessage);
   const visitedSyncingBarIds = useVisitedStore((state) => state.syncingBarIds);
@@ -69,11 +94,100 @@ export default function BarDetailScreen() {
     }
   }
 
+  async function loadReviews() {
+    const barId = firstParam(id);
+
+    if (!isNumericId(barId)) {
+      setReviews([]);
+      return;
+    }
+
+    setIsReviewsLoading(true);
+    setReviewsErrorMessage(null);
+
+    try {
+      const nextReviews = await getBarReviews(barId as string);
+      setReviews(Array.isArray(nextReviews) ? nextReviews : []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load reviews.';
+      setReviews([]);
+      setReviewsErrorMessage(message);
+    } finally {
+      setIsReviewsLoading(false);
+    }
+  }
+
   useEffect(() => {
     void loadBar();
+    void loadReviews();
     void loadFavorites();
     void loadVisited();
   }, [id]);
+
+  function handleWriteReviewPress() {
+    if (!bar) {
+      return;
+    }
+
+    if (!getAuthToken()) {
+      router.replace({
+        pathname: '/login',
+        params: { redirect: `/bar/${bar.id}` },
+      });
+      return;
+    }
+
+    setReviewRating(5);
+    setReviewContent('');
+    setIsReviewModalVisible(true);
+  }
+
+  function closeReviewModal() {
+    Keyboard.dismiss();
+    setIsReviewModalVisible(false);
+  }
+
+  async function handleSubmitReview() {
+    if (!bar || isReviewSubmitting) {
+      return;
+    }
+
+    const content = reviewContent.trim();
+    if (!content) {
+      Alert.alert('Add a note', 'Review content cannot be empty.');
+      return;
+    }
+
+    if (reviewRating < 1) {
+      Alert.alert('Choose a rating', 'Please choose at least 1 star before submitting.');
+      return;
+    }
+
+    if (content.length > 500) {
+      Alert.alert('Review is too long', 'Please keep your review under 500 characters.');
+      return;
+    }
+
+    setIsReviewSubmitting(true);
+
+    try {
+      const newReview = await createReview({
+        barId: Number(bar.id),
+        rating: reviewRating,
+        content,
+      });
+      addMyReview(newReview);
+      Keyboard.dismiss();
+      setIsReviewModalVisible(false);
+      setReviewContent('');
+      await loadReviews();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to submit review.';
+      Alert.alert('Could not submit review', message);
+    } finally {
+      setIsReviewSubmitting(false);
+    }
+  }
 
   const handleCheckInPress = () => {
     if (!bar) {
@@ -173,13 +287,12 @@ export default function BarDetailScreen() {
   }
 
   const tags = Array.isArray(bar.tags) ? bar.tags : [];
-  const reviewHighlights = Array.isArray(bar.reviewHighlights) ? bar.reviewHighlights : [];
   const title = bar.name || 'Vesper spot';
   const heroImage =
     bar.image || 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
   const meta = [bar.type, bar.neighborhood, bar.distance].filter(Boolean).join(' - ');
   const rating = Number.isFinite(Number(bar.rating)) ? Number(bar.rating).toFixed(1) : 'Rating pending';
-  const reviews = Number.isFinite(Number(bar.reviews)) && Number(bar.reviews) > 0 ? ` (${bar.reviews})` : '';
+  const reviewCountText = Number.isFinite(Number(bar.reviews)) && Number(bar.reviews) > 0 ? ` (${bar.reviews})` : '';
   const price = bar.price || 'Price pending';
   const about = bar.about || (bar.neighborhood ? `Located at ${bar.neighborhood}.` : 'Details coming soon.');
 
@@ -230,7 +343,7 @@ export default function BarDetailScreen() {
 
           <View style={styles.statRow}>
             <View style={styles.statPill}>
-              <Text style={styles.rating}>★{rating}{reviews}</Text>
+              <Text style={styles.rating}>★{rating}{reviewCountText}</Text>
             </View>
             <View style={styles.statPill}>
               <Text style={styles.price}>{price}</Text>
@@ -258,19 +371,88 @@ export default function BarDetailScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Reviews</Text>
-            {reviewHighlights.map((review) => (
-              <View key={review.id} style={styles.reviewCard}>
-                <View style={styles.reviewHeader}>
-                  <Text style={styles.reviewAuthor}>{review.author}</Text>
-                  <Text style={styles.reviewRating}>★{review.rating}</Text>
-                </View>
-                <Text style={styles.reviewText}>{review.text}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Reviews</Text>
+              <Pressable style={styles.writeReviewButton} onPress={handleWriteReviewPress}>
+                <Ionicons name="create-outline" size={16} color="#7c3aed" />
+                <Text style={styles.writeReviewText}>Write review</Text>
+              </Pressable>
+            </View>
+
+            {isReviewsLoading ? (
+              <View style={styles.reviewStateCard}>
+                <ActivityIndicator color="#8b5cf6" />
+                <Text style={styles.reviewStateText}>Loading reviews</Text>
               </View>
-            ))}
+            ) : reviewsErrorMessage ? (
+              <View style={styles.reviewStateCard}>
+                <Ionicons name="warning-outline" size={22} color="#8b5cf6" />
+                <Text style={styles.reviewStateText}>{reviewsErrorMessage}</Text>
+                <Pressable style={styles.retryButton} onPress={() => void loadReviews()}>
+                  <Text style={styles.retryText}>Try again</Text>
+                </Pressable>
+              </View>
+            ) : reviews.length === 0 ? (
+              <View style={styles.reviewStateCard}>
+                <Ionicons name="chatbubble-ellipses-outline" size={22} color="#8b5cf6" />
+                <Text style={styles.reviewStateText}>No reviews yet.</Text>
+              </View>
+            ) : (
+              reviews.map((review) => (
+                <View key={review.id} style={styles.reviewCard}>
+                  <View style={styles.reviewHeader}>
+                    <Text style={styles.reviewAuthor}>{review.username || 'Vesper user'}</Text>
+                    <Text style={styles.reviewRating}>★{review.rating}/5</Text>
+                  </View>
+                  <Text style={styles.reviewText}>{review.content}</Text>
+                </View>
+              ))
+            )}
           </View>
         </View>
       </ScrollView>
+
+      <Modal visible={isReviewModalVisible} transparent animationType="fade" onRequestClose={closeReviewModal}>
+        <Pressable style={styles.modalOverlay} onPress={Keyboard.dismiss}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalKeyboardAvoider}>
+          <Pressable style={styles.modalCard} onPress={Keyboard.dismiss}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Write review</Text>
+              <Pressable style={styles.modalCloseButton} onPress={closeReviewModal}>
+                <Ionicons name="close" size={20} color="#52525b" />
+              </Pressable>
+            </View>
+
+            <Text style={styles.modalLabel}>Rating</Text>
+            <View style={styles.modalRatingRow}>
+              <RatingPicker value={reviewRating} onChange={setReviewRating} size={25} buttonSize={42} gap={8} />
+            </View>
+
+            <Text style={styles.modalLabel}>Content</Text>
+            <TextInput
+              value={reviewContent}
+              onChangeText={setReviewContent}
+              placeholder="Great atmosphere and cocktails."
+              placeholderTextColor="#a1a1aa"
+              multiline
+              maxLength={500}
+              blurOnSubmit
+              textAlignVertical="top"
+              style={styles.reviewInput}
+            />
+            <Text style={styles.characterCount}>{reviewContent.length}/500</Text>
+
+            <Pressable
+              disabled={isReviewSubmitting}
+              style={[styles.submitReviewButton, isReviewSubmitting && styles.submitReviewButtonDisabled]}
+              onPress={() => void handleSubmitReview()}
+            >
+              {isReviewSubmitting ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitReviewText}>Submit</Text>}
+            </Pressable>
+          </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
 
       <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
         <Pressable
@@ -392,8 +574,32 @@ const styles = StyleSheet.create({
   successText: { color: '#7c3aed', fontSize: 18, fontWeight: '900' },
   successSubtext: { marginTop: 5, color: '#6b7280', fontSize: 14, lineHeight: 20 },
   section: { marginTop: 28 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   sectionTitle: { color: '#111111', fontSize: 21, fontWeight: '900' },
   about: { marginTop: 10, color: '#52525b', fontSize: 15, lineHeight: 23 },
+  writeReviewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 999,
+    backgroundColor: '#f5f3ff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  writeReviewText: { color: '#7c3aed', fontSize: 12, fontWeight: '900' },
+  reviewStateCard: {
+    marginTop: 12,
+    alignItems: 'center',
+    borderRadius: 22,
+    backgroundColor: '#ffffff',
+    padding: 18,
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+  reviewStateText: { marginTop: 8, color: '#71717a', fontSize: 13, fontWeight: '700', textAlign: 'center' },
   reviewCard: {
     marginTop: 12,
     borderRadius: 22,
@@ -409,6 +615,53 @@ const styles = StyleSheet.create({
   reviewAuthor: { color: '#18181b', fontSize: 15, fontWeight: '900' },
   reviewRating: { color: '#f59e0b', fontSize: 13, fontWeight: '900' },
   reviewText: { marginTop: 8, color: '#52525b', fontSize: 14, lineHeight: 21 },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(24,24,27,0.42)',
+    paddingHorizontal: 20,
+  },
+  modalKeyboardAvoider: { width: '100%' },
+  modalCard: {
+    borderRadius: 26,
+    backgroundColor: '#fffdfc',
+    padding: 18,
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  modalTitle: { color: '#111111', fontSize: 22, fontWeight: '900' },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    backgroundColor: '#f4f4f5',
+  },
+  modalLabel: { marginTop: 18, color: '#27272a', fontSize: 13, fontWeight: '900' },
+  modalRatingRow: { marginTop: 10, flexDirection: 'row', gap: 8 },
+  reviewInput: {
+    marginTop: 10,
+    minHeight: 132,
+    borderRadius: 20,
+    backgroundColor: '#f8f7fb',
+    color: '#18181b',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  characterCount: { marginTop: 6, color: '#a1a1aa', fontSize: 12, fontWeight: '700', textAlign: 'right' },
+  submitReviewButton: {
+    marginTop: 16,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 26,
+    backgroundColor: '#8b5cf6',
+  },
+  submitReviewButtonDisabled: { opacity: 0.65 },
+  submitReviewText: { color: '#ffffff', fontSize: 15, fontWeight: '900' },
   bottomBar: {
     position: 'absolute',
     left: 0,

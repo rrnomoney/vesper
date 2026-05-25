@@ -6,8 +6,8 @@ import MapView, { Marker, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../data/bars';
-import { getBars } from '../lib/bars';
 import { pushBarDetail } from '../lib/navigation';
+import { getNearbyBars, type PoiBar } from '../lib/pois';
 import { useCheckInStore } from '../stores/checkInStore';
 
 type MapCoordinate = {
@@ -15,6 +15,7 @@ type MapCoordinate = {
   longitude: number;
 };
 type ValidMapBar = Bar & MapCoordinate;
+type MapBar = Bar | PoiBar;
 
 const shanghaiRegion: Region = {
   latitude: 31.2304,
@@ -26,10 +27,11 @@ const shanghaiRegion: Region = {
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
   const visitedBarIds = useCheckInStore((state) => state.visitedBarIds);
-  const [bars, setBars] = useState<Bar[]>([]);
-  const [selectedBar, setSelectedBar] = useState<Bar | null>(null);
+  const [bars, setBars] = useState<MapBar[]>([]);
+  const [selectedBar, setSelectedBar] = useState<MapBar | null>(null);
   const [userCoordinate, setUserCoordinate] = useState<MapCoordinate | null>(null);
-  const [locationMessage, setLocationMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
   const validBars = useMemo<ValidMapBar[]>(
     () =>
@@ -46,30 +48,68 @@ export default function MapScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadMapBars() {
+    async function loadNearbyBars() {
       try {
-        const nextBars = await getBars();
+        setIsLoading(true);
+        setStatusMessage('');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== Location.PermissionStatus.GRANTED) {
+          if (isMounted) {
+            setBars([]);
+            setStatusMessage('Location permission is needed to find nearby bars.');
+          }
+          return;
+        }
+
+        const location = await Location.getCurrentPositionAsync({});
+        const nextCoordinate = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        };
+        const nextBars = await getNearbyBars({
+          lat: nextCoordinate.latitude,
+          lng: nextCoordinate.longitude,
+        });
 
         if (isMounted) {
-          // TODO: These bars come from backend demo seed data, not real-time nearby POI.
-          // Later for the China build, use the user's coordinate to query AMap nearby bar POI, then persist/display it.
+          setUserCoordinate(nextCoordinate);
           setBars(nextBars);
+          setStatusMessage(nextBars.length === 0 ? 'No nearby bars found.' : '');
+          mapRef.current?.animateToRegion(
+            {
+              ...nextCoordinate,
+              latitudeDelta: 0.035,
+              longitudeDelta: 0.035,
+            },
+            650,
+          );
         }
-      } catch {
+      } catch (error) {
         if (isMounted) {
           setBars([]);
+          const message = error instanceof Error ? error.message : 'Unable to load nearby bars.';
+          setStatusMessage(message);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
         }
       }
     }
 
-    void loadMapBars();
+    void loadNearbyBars();
 
     return () => {
       isMounted = false;
     };
   }, []);
 
-  const openBarDetails = (bar: Bar) => {
+  const openBarDetails = (bar: MapBar) => {
+    if (bar.id.startsWith('amap:')) {
+      setStatusMessage('Details for AMap places are coming soon.');
+      return;
+    }
+
     pushBarDetail(bar.id);
   };
 
@@ -77,7 +117,7 @@ export default function MapScreen() {
     const { status } = await Location.requestForegroundPermissionsAsync();
 
     if (status !== Location.PermissionStatus.GRANTED) {
-      setLocationMessage('Location permission is needed to return to your position.');
+      setStatusMessage('Location permission is needed to return to your position.');
       return;
     }
 
@@ -88,7 +128,7 @@ export default function MapScreen() {
     };
 
     setUserCoordinate(nextCoordinate);
-    setLocationMessage('');
+    setStatusMessage('');
     mapRef.current?.animateToRegion(
       {
         ...nextCoordinate,
@@ -142,7 +182,7 @@ export default function MapScreen() {
         <View style={styles.topControls}>
           <View style={styles.statusPill}>
             <Text style={styles.statusTitle}>Nearby bars</Text>
-            <Text style={styles.statusSubtitle}>Demo data</Text>
+            <Text style={styles.statusSubtitle}>{isLoading ? 'Loading' : `${validBars.length} found`}</Text>
           </View>
 
           <Pressable style={styles.locationButton} onPress={moveToUserLocation}>
@@ -150,9 +190,9 @@ export default function MapScreen() {
           </Pressable>
         </View>
 
-        {locationMessage ? (
+        {statusMessage ? (
           <View style={styles.messageBadge}>
-            <Text style={styles.messageText}>{locationMessage}</Text>
+            <Text style={styles.messageText}>{statusMessage}</Text>
           </View>
         ) : null}
       </SafeAreaView>
@@ -187,10 +227,16 @@ export default function MapScreen() {
               <Text style={styles.price}>{selectedBar.price}</Text>
             </View>
 
-            <Pressable style={styles.detailsButton} onPress={() => openBarDetails(selectedBar)}>
-              <Text style={styles.detailsButtonText}>View details</Text>
-              <Ionicons name="chevron-forward" size={14} color="#ffffff" />
-            </Pressable>
+            {selectedBar.id.startsWith('amap:') ? (
+              <View style={styles.poiNotice}>
+                <Text style={styles.poiNoticeText}>Details coming soon</Text>
+              </View>
+            ) : (
+              <Pressable style={styles.detailsButton} onPress={() => openBarDetails(selectedBar)}>
+                <Text style={styles.detailsButtonText}>View details</Text>
+                <Ionicons name="chevron-forward" size={14} color="#ffffff" />
+              </Pressable>
+            )}
           </View>
         </Pressable>
       ) : null}
@@ -331,4 +377,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   detailsButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
+  poiNotice: {
+    marginTop: 8,
+    height: 38,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    borderRadius: 19,
+    backgroundColor: '#f4f4f5',
+    paddingHorizontal: 14,
+  },
+  poiNoticeText: { color: '#71717a', fontSize: 13, fontWeight: '900' },
 });

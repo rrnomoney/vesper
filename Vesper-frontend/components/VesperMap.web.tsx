@@ -34,7 +34,7 @@ export default function VesperMap() {
           </View>
         </View>
 
-        <Text style={styles.mapHint}>Map preview is using demo data.</Text>
+        <Text style={styles.mapHint}>Nearby bars</Text>
 
         <View style={styles.mapCard}>
           <View style={styles.grid}>
@@ -58,7 +58,7 @@ export default function VesperMap() {
               );
             })}
             <View style={styles.river} />
-            <Text style={styles.mapLabel}>Demo map preview</Text>
+            <Text style={styles.mapLabel}>Map preview</Text>
           </View>
         </View>
 

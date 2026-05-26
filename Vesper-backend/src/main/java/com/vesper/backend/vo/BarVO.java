@@ -27,6 +27,10 @@ public class BarVO {
 
     private BigDecimal rating;
 
+    private BigDecimal averageRating;
+
+    private Integer reviewCount;
+
     private Integer priceLevel;
 
     private String coverImage;

@@ -1,4 +1,5 @@
 import { apiGet } from './api';
+import { getMapDiscoveredAbout } from './barDisplay';
 import type { Bar } from '../data/bars';
 
 export type BarVO = {
@@ -11,6 +12,8 @@ export type BarVO = {
   longitude: number | string | null;
   category: string | null;
   rating: number | string | null;
+  averageRating: number | string | null;
+  reviewCount: number | null;
   priceLevel: number | null;
   coverImage: string | null;
   createdAt: string | null;
@@ -25,8 +28,8 @@ export type GetBarsParams = {
 const fallbackCoverImage =
   'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
 
-function formatPrice(priceLevel: number | null) {
-  if (!priceLevel || priceLevel < 1) {
+function formatPrice(priceLevel: number | null, externalId: string | null) {
+  if (externalId || !priceLevel || priceLevel < 1) {
     return 'Price pending';
   }
 
@@ -43,21 +46,24 @@ function toNumber(value: number | string | null, fallback = 0) {
 }
 
 export function mapBarVOToBar(bar: BarVO): Bar {
+  const reviewCount = Number(bar.reviewCount);
+  const rating = bar.averageRating ?? bar.rating;
+
   return {
     id: String(bar.id),
     name: bar.name,
     type: bar.category || 'Bar',
     neighborhood: bar.address || bar.city || 'Demo data',
     distance: bar.city || 'Available bars',
-    rating: toNumber(bar.rating),
-    reviews: 0,
-    price: formatPrice(bar.priceLevel),
+    rating: toNumber(rating),
+    reviews: Number.isFinite(reviewCount) ? reviewCount : 0,
+    price: formatPrice(bar.priceLevel, bar.externalId),
     latitude: toNumber(bar.latitude),
     longitude: toNumber(bar.longitude),
     isSaved: false,
     image: bar.coverImage || fallbackCoverImage,
     tags: bar.category ? [bar.category] : [],
-    about: bar.address ? `Located at ${bar.address}.` : 'Details coming soon.',
+    about: bar.externalId ? getMapDiscoveredAbout(bar.address) : bar.address ? `Located at ${bar.address}.` : 'Details coming soon.',
     reviewHighlights: [],
   };
 }

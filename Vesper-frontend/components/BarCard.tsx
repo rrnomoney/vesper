@@ -2,8 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, Text, View } from 'react-native';
 
 import { Bar } from '../data/bars';
+import { getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../lib/barDisplay';
 
 export function BarCard({ bar }: { bar: Bar }) {
+  const ratingSummary = getRatingSummary(bar, 'New');
+  const primaryTag = getPrimaryBarTag(bar);
+
   return (
     <Pressable className="mb-4 flex-row overflow-hidden rounded-[24px] border border-white bg-white shadow-lg shadow-violet-100">
       <View className="relative h-[116px] w-[118px]">
@@ -20,7 +24,7 @@ export function BarCard({ bar }: { bar: Bar }) {
               {bar.name}
             </Text>
             <Text numberOfLines={1} className="mt-1 text-[12px] text-zinc-500">
-              {bar.type} - {bar.neighborhood}
+              {bar.neighborhood}
             </Text>
           </View>
           <View className="h-8 w-8 items-center justify-center rounded-full bg-zinc-50">
@@ -36,14 +40,14 @@ export function BarCard({ bar }: { bar: Bar }) {
           <View className="flex-row items-center rounded-full bg-violet-50 px-2.5 py-1">
             <Ionicons name="star" size={12} color="#f59e0b" />
             <Text className="ml-1 text-[12px] font-semibold text-zinc-800">
-              {bar.rating} ({bar.reviews})
+              {ratingSummary.text}
             </Text>
           </View>
         </View>
 
         <View className="mt-auto flex-row items-center justify-between">
           <Text className="text-[12px] text-zinc-400">Avg. spend</Text>
-          <Text className="text-[13px] font-semibold text-zinc-900">{bar.price}</Text>
+          <Text className="text-[13px] font-semibold text-zinc-900">{hasReliablePrice(bar) ? bar.price : primaryTag}</Text>
         </View>
       </View>
     </Pressable>

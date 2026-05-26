@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Tex
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../../data/bars';
+import { getPrimaryBarTag, getRatingSummary } from '../../lib/barDisplay';
 import { pushBarDetail } from '../../lib/navigation';
 import { resolveAssetUrl } from '../../lib/upload';
 import { useAuthStore } from '../../stores/authStore';
@@ -22,15 +23,17 @@ function BarListItem({
   bar: Bar;
   action: React.ReactNode;
 }) {
+  const ratingSummary = getRatingSummary(bar, 'New');
+
   return (
     <Pressable style={styles.savedCard} onPress={() => pushBarDetail(bar.id)}>
       <Image source={{ uri: bar.image }} style={styles.savedImage} />
       <View style={styles.savedBody}>
         <Text style={styles.savedName}>{bar.name}</Text>
         <Text style={styles.savedMeta}>
-          {bar.type} - {bar.neighborhood}
+          {getPrimaryBarTag(bar)} - {bar.neighborhood}
         </Text>
-        <Text style={styles.savedRating}>★ {bar.rating} ({bar.reviews})</Text>
+        <Text style={[styles.savedRating, !ratingSummary.hasReviews && styles.savedRatingEmpty]}>{ratingSummary.text}</Text>
       </View>
       {action}
     </Pressable>
@@ -530,6 +533,7 @@ const styles = StyleSheet.create({
   savedName: { color: '#111111', fontSize: 16, fontWeight: '900' },
   savedMeta: { marginTop: 4, color: '#71717a', fontSize: 12, fontWeight: '600' },
   savedRating: { marginTop: 7, color: '#f59e0b', fontSize: 12, fontWeight: '900' },
+  savedRatingEmpty: { color: '#7c3aed' },
   visitedStatus: {
     flexDirection: 'row',
     alignItems: 'center',

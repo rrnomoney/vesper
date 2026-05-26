@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from './api';
+import { cleanCategoryLabel, getMapDiscoveredAbout } from './barDisplay';
 import { mapBarVOToBar, type BarVO } from './bars';
 import type { Bar } from '../data/bars';
 
@@ -64,18 +65,18 @@ export function mapPoiToBar(poi: PoiVO): PoiBar {
     poiId: poi.id,
     source: 'amap',
     name: poi.name,
-    type: poi.category || 'Bar',
+    type: cleanCategoryLabel(poi.category),
     neighborhood: poi.address || 'Nearby',
     distance: formatDistance(poi.distance),
     rating: toNumber(poi.rating),
     reviews: 0,
-    price: 'Details pending',
+    price: 'Price pending',
     latitude: toNumber(poi.latitude),
     longitude: toNumber(poi.longitude),
     isSaved: false,
     image: poi.coverImage || fallbackCoverImage,
-    tags: poi.category ? [poi.category] : [],
-    about: poi.address ? `Located at ${poi.address}.` : 'Details coming soon.',
+    tags: [cleanCategoryLabel(poi.category)],
+    about: getMapDiscoveredAbout(poi.address),
     reviewHighlights: [],
   };
 }

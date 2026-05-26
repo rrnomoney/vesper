@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from 'r
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { featuredBars, type Bar } from '../data/bars';
+import { getPrimaryBarTag, getRatingSummary } from '../lib/barDisplay';
 import { pushBarDetail } from '../lib/navigation';
 
 const pins: ViewStyle[] = [
@@ -70,12 +71,12 @@ export default function VesperMap() {
               </View>
               <View style={styles.previewText}>
                 <Text style={styles.previewName}>{selectedBar.name}</Text>
-                <Text style={styles.previewMeta}>{selectedBar.type} - {selectedBar.neighborhood}</Text>
+                <Text style={styles.previewMeta}>{getPrimaryBarTag(selectedBar)} - {selectedBar.neighborhood}</Text>
               </View>
             </View>
 
             <View style={styles.previewBottom}>
-              <Text style={styles.rating}>★ {selectedBar.rating} ({selectedBar.reviews})</Text>
+              <Text style={styles.rating}>{getRatingSummary(selectedBar, 'New').text}</Text>
               <Text style={styles.distance}>{selectedBar.distance}</Text>
             </View>
 

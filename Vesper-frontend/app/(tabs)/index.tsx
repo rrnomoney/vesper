@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../../data/bars';
 import { homeCategories } from '../../data/bars';
+import { getBarTags, getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../../lib/barDisplay';
 import { getBars } from '../../lib/bars';
 import { getAuthToken } from '../../lib/authSession';
 import { pushBarDetail } from '../../lib/navigation';
@@ -180,6 +181,10 @@ export default function HomeScreen() {
             const isVisited = visitedBarIds.includes(bar.id);
             const isSaved = savedBarIds.includes(bar.id);
             const isSyncing = syncingBarIds.includes(bar.id);
+            const ratingSummary = getRatingSummary(bar, 'New');
+            const tags = getBarTags(bar);
+            const primaryTag = getPrimaryBarTag(bar);
+            const shouldShowPrice = hasReliablePrice(bar);
 
             return (
               <Pressable key={bar.id} style={styles.card} onPress={() => pushBarDetail(bar.id)}>
@@ -199,9 +204,9 @@ export default function HomeScreen() {
                 <View style={styles.cardBody}>
                   <View style={styles.cardTopRow}>
                     <View style={styles.cardTitleWrap}>
-                      <Text style={styles.cardTitle}>{bar.name}</Text>
-                      <Text style={styles.cardMeta}>
-                        {bar.type} - {bar.neighborhood}
+                      <Text style={styles.cardTitle} numberOfLines={1}>{bar.name}</Text>
+                      <Text style={styles.cardMeta} numberOfLines={2}>
+                        {bar.neighborhood}
                       </Text>
                     </View>
                     <Pressable
@@ -221,9 +226,17 @@ export default function HomeScreen() {
                     </Pressable>
                   </View>
 
+                  <View style={styles.tagRow}>
+                    {tags.slice(0, 2).map((tag) => (
+                      <View key={tag} style={styles.tagPill}>
+                        <Text style={styles.tagText}>{tag}</Text>
+                      </View>
+                    ))}
+                  </View>
+
                   <View style={styles.cardBottomRow}>
-                    <Text style={styles.rating}>★{bar.rating} ({bar.reviews})</Text>
-                    <Text style={styles.price}>{bar.price}</Text>
+                    <Text style={[styles.rating, !ratingSummary.hasReviews && styles.emptyRating]}>{ratingSummary.text}</Text>
+                    {shouldShowPrice ? <Text style={styles.price}>{bar.price}</Text> : <Text style={styles.priceMuted}>{primaryTag}</Text>}
                   </View>
                 </View>
               </Pressable>
@@ -343,9 +356,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
   },
   saveButtonDisabled: { opacity: 0.55 },
+  tagRow: { marginTop: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tagPill: { borderRadius: 999, backgroundColor: '#f5f3ff', paddingHorizontal: 10, paddingVertical: 6 },
+  tagText: { color: '#7c3aed', fontSize: 12, fontWeight: '800' },
   cardBottomRow: { marginTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   rating: { color: '#f59e0b', fontSize: 14, fontWeight: '800' },
+  emptyRating: { color: '#7c3aed' },
   price: { color: '#27272a', fontSize: 14, fontWeight: '800' },
+  priceMuted: { color: '#71717a', fontSize: 13, fontWeight: '800' },
   stateCard: {
     alignItems: 'center',
     borderRadius: 26,

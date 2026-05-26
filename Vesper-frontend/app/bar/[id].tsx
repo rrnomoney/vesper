@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RatingPicker } from '../../components/RatingPicker';
 import type { Bar } from '../../data/bars';
+import { getRatingSummary, hasReliablePrice } from '../../lib/barDisplay';
 import { getBarById } from '../../lib/bars';
 import { getAuthToken } from '../../lib/authSession';
 import { createReview, getBarReviews, type ReviewVO } from '../../lib/reviews';
@@ -41,6 +42,54 @@ function isNumericId(value: string | undefined) {
 type SelectedReviewImage = UploadImageInput & {
   id: string;
 };
+
+function hasCjkText(value: string) {
+  return /[\u3400-\u9fff]/.test(value);
+}
+
+function cleanCategoryLabel(value: string | null | undefined) {
+  const text = (value || '').toLowerCase();
+
+  if (text.includes('清吧')) {
+    return '清吧';
+  }
+
+  if (text.includes('livehouse')) {
+    return 'Livehouse';
+  }
+
+  if (text.includes('精酿')) {
+    return '精酿';
+  }
+
+  if (text.includes('威士忌') || text.includes('whisky') || text.includes('whiskey')) {
+    return 'Whisky';
+  }
+
+  if (text.includes('酒吧') || text.includes('cocktail') || text.includes('pub')) {
+    return '酒吧';
+  }
+
+  return 'Night spot';
+}
+
+function getDisplayTags(bar: Bar) {
+  const rawTags = [bar.type, ...(Array.isArray(bar.tags) ? bar.tags : [])].filter(Boolean);
+  const labels = rawTags.map(cleanCategoryLabel);
+  return Array.from(new Set(labels.length > 0 ? labels : ['Night spot']));
+}
+
+function getAboutText(bar: Bar) {
+  const address = bar.neighborhood?.trim();
+
+  if (address) {
+    return hasCjkText(address)
+      ? '这是从地图发现的附近酒吧。写下你的体验，帮助其他人了解这里的氛围。'
+      : 'A nearby bar discovered from the map. Leave a review to help others understand the vibe.';
+  }
+
+  return bar.about || 'A newly added Vesper spot. More details are coming soon.';
+}
 
 export default function BarDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
@@ -336,15 +385,19 @@ export default function BarDetailScreen() {
     );
   }
 
-  const tags = Array.isArray(bar.tags) ? bar.tags : [];
+  const tags = getDisplayTags(bar);
   const title = bar.name || 'Vesper spot';
   const heroImage =
     bar.image || 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
-  const meta = [bar.type, bar.neighborhood, bar.distance].filter(Boolean).join(' - ');
-  const rating = Number.isFinite(Number(bar.rating)) ? Number(bar.rating).toFixed(1) : 'Rating pending';
-  const reviewCountText = Number.isFinite(Number(bar.reviews)) && Number(bar.reviews) > 0 ? ` (${bar.reviews})` : '';
+  const address = bar.neighborhood || 'Address pending';
+  const detailReviewCount = reviews.length;
+  const detailAverageRating =
+    detailReviewCount > 0 ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / detailReviewCount : bar.rating;
+  const ratingSummary = getRatingSummary({ rating: detailAverageRating, reviews: detailReviewCount || bar.reviews }, 'No reviews yet');
+  const hasRating = ratingSummary.hasReviews;
   const price = bar.price || 'Price pending';
-  const about = bar.about || (bar.neighborhood ? `Located at ${bar.neighborhood}.` : 'Details coming soon.');
+  const shouldShowPrice = hasReliablePrice(bar);
+  const about = getAboutText(bar);
 
   return (
     <View style={styles.screen}>
@@ -367,7 +420,9 @@ export default function BarDetailScreen() {
 
         <View style={styles.body}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.title} numberOfLines={2} ellipsizeMode="tail">
+              {title}
+            </Text>
             {isVisited ? (
               <View style={styles.visitedPill}>
                 <Ionicons name="sparkles" size={13} color="#ffffff" />
@@ -375,7 +430,12 @@ export default function BarDetailScreen() {
               </View>
             ) : null}
           </View>
-          {meta ? <Text style={styles.meta}>{meta}</Text> : null}
+          <View style={styles.addressRow}>
+            <Ionicons name="location-outline" size={16} color="#8b5cf6" />
+            <Text style={styles.meta} numberOfLines={2} ellipsizeMode="tail">
+              {address}
+            </Text>
+          </View>
 
           {savedErrorMessage ? (
             <View style={styles.inlineError}>
@@ -392,12 +452,15 @@ export default function BarDetailScreen() {
           ) : null}
 
           <View style={styles.statRow}>
-            <View style={styles.statPill}>
-              <Text style={styles.rating}>★{rating}{reviewCountText}</Text>
+            <View style={[styles.statPill, !hasRating && styles.newPlacePill]}>
+              <Ionicons name={hasRating ? 'star' : 'sparkles-outline'} size={14} color={hasRating ? '#f59e0b' : '#7c3aed'} />
+              <Text style={[styles.rating, !hasRating && styles.newPlaceText]}>{ratingSummary.text}</Text>
             </View>
-            <View style={styles.statPill}>
-              <Text style={styles.price}>{price}</Text>
-            </View>
+            {shouldShowPrice ? (
+              <View style={styles.statPill}>
+                <Text style={styles.price}>{price}</Text>
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.tagRow}>
@@ -444,15 +507,26 @@ export default function BarDetailScreen() {
               </View>
             ) : reviews.length === 0 ? (
               <View style={styles.reviewStateCard}>
-                <Ionicons name="chatbubble-ellipses-outline" size={22} color="#8b5cf6" />
-                <Text style={styles.reviewStateText}>No reviews yet.</Text>
+                <View style={styles.emptyReviewIcon}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={24} color="#8b5cf6" />
+                </View>
+                <Text style={styles.reviewStateTitle}>No reviews yet</Text>
+                <Text style={styles.reviewStateText}>Be the first to leave a note after your visit.</Text>
               </View>
             ) : (
               reviews.map((review) => (
                 <View key={review.id} style={styles.reviewCard}>
                   <View style={styles.reviewHeader}>
-                    <Text style={styles.reviewAuthor}>{review.username || 'Vesper user'}</Text>
-                    <Text style={styles.reviewRating}>★{review.rating}/5</Text>
+                    <View style={styles.reviewAuthorBlock}>
+                      <Text style={styles.reviewAuthor}>{review.username || 'Vesper user'}</Text>
+                      <Text style={styles.reviewTime}>
+                        {review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recently'}
+                      </Text>
+                    </View>
+                    <View style={styles.reviewRatingPill}>
+                      <Ionicons name="star" size={12} color="#f59e0b" />
+                      <Text style={styles.reviewRating}>{review.rating}/5</Text>
+                    </View>
                   </View>
                   <Text style={styles.reviewText}>{review.content}</Text>
                   {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 ? (
@@ -613,7 +687,7 @@ const styles = StyleSheet.create({
     paddingTop: 26,
   },
   titleRow: { gap: 12 },
-  title: { color: '#111111', fontSize: 32, fontWeight: '900' },
+  title: { color: '#111111', fontSize: 31, fontWeight: '900', lineHeight: 38 },
   visitedPill: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -625,7 +699,8 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   visitedText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
-  meta: { marginTop: 8, color: '#71717a', fontSize: 14, fontWeight: '600' },
+  addressRow: { marginTop: 10, flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
+  meta: { flex: 1, color: '#71717a', fontSize: 14, fontWeight: '600', lineHeight: 20 },
   inlineError: {
     marginTop: 14,
     flexDirection: 'row',
@@ -639,6 +714,9 @@ const styles = StyleSheet.create({
   inlineErrorText: { flex: 1, color: '#6d28d9', fontSize: 12, fontWeight: '700' },
   statRow: { marginTop: 18, flexDirection: 'row', gap: 10 },
   statPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     borderRadius: 999,
     backgroundColor: '#ffffff',
     paddingHorizontal: 14,
@@ -649,7 +727,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
   },
+  newPlacePill: { backgroundColor: '#f5f3ff' },
   rating: { color: '#f59e0b', fontSize: 14, fontWeight: '900' },
+  newPlaceText: { color: '#7c3aed' },
   price: { color: '#27272a', fontSize: 14, fontWeight: '800' },
   tagRow: { marginTop: 18, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tag: { borderRadius: 999, backgroundColor: '#f5f3ff', paddingHorizontal: 13, paddingVertical: 8 },
@@ -681,33 +761,53 @@ const styles = StyleSheet.create({
   reviewStateCard: {
     marginTop: 12,
     alignItems: 'center',
-    borderRadius: 22,
+    borderRadius: 24,
     backgroundColor: '#ffffff',
-    padding: 18,
+    padding: 22,
     shadowColor: '#8b5cf6',
     shadowOpacity: 0.08,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
   },
+  emptyReviewIcon: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    backgroundColor: '#f5f3ff',
+  },
+  reviewStateTitle: { marginTop: 12, color: '#18181b', fontSize: 16, fontWeight: '900', textAlign: 'center' },
   reviewStateText: { marginTop: 8, color: '#71717a', fontSize: 13, fontWeight: '700', textAlign: 'center' },
   reviewCard: {
-    marginTop: 12,
-    borderRadius: 22,
+    marginTop: 14,
+    borderRadius: 24,
     backgroundColor: '#ffffff',
-    padding: 16,
+    padding: 17,
     shadowColor: '#8b5cf6',
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.09,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 3,
   },
-  reviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  reviewHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  reviewAuthorBlock: { flex: 1 },
   reviewAuthor: { color: '#18181b', fontSize: 15, fontWeight: '900' },
+  reviewTime: { marginTop: 3, color: '#a1a1aa', fontSize: 12, fontWeight: '700' },
+  reviewRatingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    backgroundColor: '#fff7ed',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
   reviewRating: { color: '#f59e0b', fontSize: 13, fontWeight: '900' },
-  reviewText: { marginTop: 8, color: '#52525b', fontSize: 14, lineHeight: 21 },
-  reviewImageGrid: { marginTop: 12, flexDirection: 'row', gap: 8 },
-  reviewImageThumb: { width: 76, height: 76, borderRadius: 14, backgroundColor: '#f4f4f5' },
+  reviewText: { marginTop: 11, color: '#52525b', fontSize: 14, lineHeight: 21, fontWeight: '600' },
+  reviewImageGrid: { marginTop: 13, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  reviewImageThumb: { width: 82, height: 82, borderRadius: 16, backgroundColor: '#f4f4f5' },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',

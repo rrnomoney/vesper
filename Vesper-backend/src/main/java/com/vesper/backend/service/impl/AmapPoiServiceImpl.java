@@ -70,29 +70,31 @@ public class AmapPoiServiceImpl implements PoiService {
             throw new BusinessException(500, "AMap API key is not configured");
         }
 
-        URI uri = UriComponentsBuilder.fromUriString(AMAP_AROUND_URL)
-                .queryParam("key", amapApiKey)
-                .queryParam("location", longitude + "," + latitude)
-                .queryParam("keywords", BAR_KEYWORDS)
-                .queryParam("radius", 5000)
-                .queryParam("offset", 25)
-                .queryParam("page", 1)
-                .queryParam("extensions", "base")
-                .build()
-                .encode()
-                .toUri();
-
         try {
-            JsonNode response = restTemplate.getForObject(uri, JsonNode.class);
-            if (response == null || !"1".equals(response.path("status").asText())) {
-                throw new BusinessException(502, "Unable to load nearby bars");
-            }
-
             List<PoiVO> pois = new ArrayList<>();
-            for (JsonNode poiNode : response.path("pois")) {
-                parsePoi(poiNode)
-                        .filter(this::isRelevantBar)
-                        .ifPresent(pois::add);
+            for (int page = 1; page <= 3 && pois.size() < 30; page++) {
+                URI uri = UriComponentsBuilder.fromUriString(AMAP_AROUND_URL)
+                        .queryParam("key", amapApiKey)
+                        .queryParam("location", longitude + "," + latitude)
+                        .queryParam("keywords", BAR_KEYWORDS)
+                        .queryParam("radius", 8000)
+                        .queryParam("offset", 25)
+                        .queryParam("page", page)
+                        .queryParam("extensions", "base")
+                        .build()
+                        .encode()
+                        .toUri();
+
+                JsonNode response = restTemplate.getForObject(uri, JsonNode.class);
+                if (response == null || !"1".equals(response.path("status").asText())) {
+                    throw new BusinessException(502, "Unable to load nearby bars");
+                }
+
+                for (JsonNode poiNode : response.path("pois")) {
+                    parsePoi(poiNode)
+                            .filter(this::isRelevantBar)
+                            .ifPresent(pois::add);
+                }
             }
             return pois;
         } catch (RestClientException exception) {

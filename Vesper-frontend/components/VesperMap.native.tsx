@@ -6,9 +6,11 @@ import MapView, { Marker, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../data/bars';
+import { getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../lib/barDisplay';
 import { pushBarDetail } from '../lib/navigation';
 import { getNearbyBars, importPoi, type PoiBar } from '../lib/pois';
-import { useCheckInStore } from '../stores/checkInStore';
+import { useSavedStore } from '../stores/savedStore';
+import { useVisitedStore } from '../stores/visitedStore';
 
 type MapCoordinate = {
   latitude: number;
@@ -26,7 +28,10 @@ const shanghaiRegion: Region = {
 
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
-  const visitedBarIds = useCheckInStore((state) => state.visitedBarIds);
+  const visitedBars = useVisitedStore((state) => state.visitedBars);
+  const loadVisited = useVisitedStore((state) => state.loadVisited);
+  const savedBars = useSavedStore((state) => state.savedBars);
+  const loadFavorites = useSavedStore((state) => state.loadFavorites);
   const [bars, setBars] = useState<MapBar[]>([]);
   const [selectedBar, setSelectedBar] = useState<MapBar | null>(null);
   const [userCoordinate, setUserCoordinate] = useState<MapCoordinate | null>(null);
@@ -137,6 +142,19 @@ export default function MapScreen() {
     }
   };
 
+  const findLocalMatch = (bar: MapBar, localBars: Bar[]) =>
+    localBars.some((localBar) => {
+      const sameId = localBar.id === bar.id;
+      const sameName = localBar.name === bar.name;
+      const sameLocation =
+        Math.abs(Number(localBar.latitude) - Number(bar.latitude)) < 0.00001 &&
+        Math.abs(Number(localBar.longitude) - Number(bar.longitude)) < 0.00001;
+      return sameId || sameName || sameLocation;
+    });
+
+  const isVisitedBar = (bar: MapBar) => findLocalMatch(bar, visitedBars);
+  const isSavedBar = (bar: MapBar) => findLocalMatch(bar, savedBars);
+
   const moveToUserLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
 
@@ -163,6 +181,11 @@ export default function MapScreen() {
     );
   };
 
+  useEffect(() => {
+    void loadVisited();
+    void loadFavorites();
+  }, [loadFavorites, loadVisited]);
+
   return (
     <View style={styles.screen}>
       <MapView
@@ -175,23 +198,32 @@ export default function MapScreen() {
         rotateEnabled={false}
         showsCompass={false}
       >
-        {validBars.map((bar) => (
-          <Marker
-            key={String(bar.id)}
-            coordinate={{ latitude: bar.latitude, longitude: bar.longitude }}
-            tracksViewChanges={false}
-            pinColor={visitedBarIds.includes(bar.id) ? '#d9468f' : '#6d5df6'}
-            onPress={(event) => {
-              event.stopPropagation?.();
+        {validBars.map((bar) => {
+          const visited = isVisitedBar(bar);
+          const saved = isSavedBar(bar);
 
-              if (selectedBar?.id === bar.id) {
-                return;
-              }
+          return (
+            <Marker
+              key={String(bar.id)}
+              coordinate={{ latitude: bar.latitude, longitude: bar.longitude }}
+              tracksViewChanges={false}
+              anchor={{ x: 0.5, y: 0.5 }}
+              onPress={(event) => {
+                event.stopPropagation?.();
 
-              setSelectedBar(bar);
-            }}
-          />
-        ))}
+                if (selectedBar?.id === bar.id) {
+                  return;
+                }
+
+                setSelectedBar(bar);
+              }}
+            >
+              <View style={[styles.poiMarker, visited && styles.poiMarkerVisited]}>
+                <Ionicons name={visited ? 'checkmark' : saved ? 'bookmark' : 'wine'} size={13} color="#ffffff" />
+              </View>
+            </Marker>
+          );
+        })}
 
         {userCoordinate ? (
           <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
@@ -232,23 +264,25 @@ export default function MapScreen() {
               <Text style={styles.previewName} numberOfLines={1}>
                 {selectedBar.name}
               </Text>
-              {visitedBarIds.includes(selectedBar.id) ? (
+              {isVisitedBar(selectedBar) ? (
                 <View style={styles.visitedBadge}>
-                  <Ionicons name="sparkles" size={10} color="#ffffff" />
+                  <Ionicons name="checkmark" size={10} color="#ffffff" />
                 </View>
               ) : null}
             </View>
 
             <Text style={styles.previewCategory} numberOfLines={1}>
-              {selectedBar.type}
+              {getPrimaryBarTag(selectedBar)}
             </Text>
             <Text style={styles.previewAddress} numberOfLines={1}>
               {selectedBar.neighborhood}
             </Text>
 
             <View style={styles.previewMetaRow}>
-              <Text style={styles.rating}>★ {selectedBar.rating}</Text>
-              <Text style={styles.price}>{selectedBar.price}</Text>
+              <Text style={[styles.rating, !getRatingSummary(selectedBar).hasReviews && styles.emptyRating]}>
+                {getRatingSummary(selectedBar, 'No reviews yet').text}
+              </Text>
+              {hasReliablePrice(selectedBar) ? <Text style={styles.price}>{selectedBar.price}</Text> : null}
             </View>
 
             <Pressable
@@ -331,6 +365,25 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 },
     elevation: 7,
   },
+  poiMarker: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    backgroundColor: '#6d5df6',
+    shadowColor: '#6d5df6',
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 7,
+  },
+  poiMarkerVisited: {
+    backgroundColor: '#ec4899',
+    shadowColor: '#ec4899',
+  },
   messageBadge: {
     alignSelf: 'center',
     marginTop: 10,
@@ -388,6 +441,7 @@ const styles = StyleSheet.create({
     gap: 9,
   },
   rating: { color: '#f59e0b', fontSize: 13, fontWeight: '900' },
+  emptyRating: { color: '#7c3aed' },
   price: { flex: 1, color: '#27272a', fontSize: 12, fontWeight: '800' },
   detailsButton: {
     marginTop: 8,

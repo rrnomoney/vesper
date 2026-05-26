@@ -5,6 +5,7 @@ import type { Bar } from '../data/bars';
 
 export type PoiVO = {
   id: string;
+  localBarId: number | string | null;
   name: string;
   address: string | null;
   latitude: number | string | null;
@@ -13,6 +14,8 @@ export type PoiVO = {
   distance: number | null;
   coverImage: string | null;
   rating: number | string | null;
+  averageRating: number | string | null;
+  reviewCount: number | null;
 };
 
 export type NearbyBarsParams = {
@@ -57,19 +60,24 @@ function formatDistance(distance: number | null) {
 export type PoiBar = Bar & {
   source: 'amap';
   poiId: string;
+  localBarId: string | null;
 };
 
 export function mapPoiToBar(poi: PoiVO): PoiBar {
+  const localBarId = poi.localBarId === null || poi.localBarId === undefined ? null : String(poi.localBarId);
+  const reviewCount = Number(poi.reviewCount);
+
   return {
-    id: `amap:${poi.id}`,
+    id: localBarId || `amap:${poi.id}`,
     poiId: poi.id,
+    localBarId,
     source: 'amap',
     name: poi.name,
     type: cleanCategoryLabel(poi.category),
     neighborhood: poi.address || 'Nearby',
     distance: formatDistance(poi.distance),
-    rating: toNumber(poi.rating),
-    reviews: 0,
+    rating: toNumber(poi.averageRating ?? poi.rating),
+    reviews: Number.isFinite(reviewCount) ? reviewCount : 0,
     price: 'Price pending',
     latitude: toNumber(poi.latitude),
     longitude: toNumber(poi.longitude),

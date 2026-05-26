@@ -1,14 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Bar } from '../data/bars';
 import { getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../lib/barDisplay';
 import { pushBarDetail } from '../lib/navigation';
-import { getNearbyBars, importPoi, type PoiBar } from '../lib/pois';
+import { refreshNearby, useNearbyStore, type NearbyBar } from '../lib/nearbyCache';
+import { importPoi } from '../lib/pois';
+import { useAuthStore } from '../stores/authStore';
 import { useSavedStore } from '../stores/savedStore';
 import { useVisitedStore } from '../stores/visitedStore';
 
@@ -17,8 +20,11 @@ type MapCoordinate = {
   longitude: number;
 };
 type ValidMapBar = Bar & MapCoordinate;
-type MapBar = Bar | PoiBar;
+type MapBar = NearbyBar;
+type MarkerState = 'visited' | 'saved' | 'normal';
 
+// TODO: For domestic production, define one GCJ-02/WGS84 strategy for Expo location,
+// AMap POI coordinates, and react-native-maps rendering to avoid visible marker drift.
 const shanghaiRegion: Region = {
   latitude: 31.2304,
   longitude: 121.4737,
@@ -26,17 +32,43 @@ const shanghaiRegion: Region = {
   longitudeDelta: 0.055,
 };
 
+function VesperMarker({ state }: { state: MarkerState }) {
+  const isVisited = state === 'visited';
+  const isSaved = state === 'saved';
+  const iconName = isVisited ? 'checkmark' : state === 'saved' ? 'bookmark' : 'wine';
+
+  return (
+    <View style={[styles.poiMarker, isSaved && styles.poiMarkerSaved, isVisited && styles.poiMarkerVisited]}>
+      <Ionicons name={iconName} size={13} color="#ffffff" />
+    </View>
+  );
+}
+
+function getLocalBarId(bar: MapBar) {
+  const localBarId = 'localBarId' in bar ? bar.localBarId : bar.id;
+  const numericId = Number(localBarId);
+  return Number.isFinite(numericId) ? numericId : null;
+}
+
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
+  const authUserId = useAuthStore((state) => state.user?.id ?? null);
+  const isAuthInitializing = useAuthStore((state) => state.isInitializing);
   const visitedBars = useVisitedStore((state) => state.visitedBars);
   const loadVisited = useVisitedStore((state) => state.loadVisited);
+  const clearVisitedBars = useVisitedStore((state) => state.clearVisitedBars);
   const savedBars = useSavedStore((state) => state.savedBars);
   const loadFavorites = useSavedStore((state) => state.loadFavorites);
-  const [bars, setBars] = useState<MapBar[]>([]);
+  const clearSavedBars = useSavedStore((state) => state.clearSavedBars);
+  const bars = useNearbyStore((state) => state.bars);
+  const nearbyRegion = useNearbyStore((state) => state.region);
+  const lastLocation = useNearbyStore((state) => state.lastLocation);
+  const isLoading = useNearbyStore((state) => state.loading);
+  const nearbyError = useNearbyStore((state) => state.error);
   const [selectedBar, setSelectedBar] = useState<MapBar | null>(null);
   const [userCoordinate, setUserCoordinate] = useState<MapCoordinate | null>(null);
+  const [mapRegion, setMapRegion] = useState<Region | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
   const [importingPoiId, setImportingPoiId] = useState<string | null>(null);
 
   const validBars = useMemo<ValidMapBar[]>(
@@ -52,62 +84,21 @@ export default function MapScreen() {
   );
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadNearbyBars() {
-      try {
-        setIsLoading(true);
-        setStatusMessage('');
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== Location.PermissionStatus.GRANTED) {
-          if (isMounted) {
-            setBars([]);
-            setStatusMessage('Location permission is needed to find nearby bars.');
-          }
-          return;
-        }
-
-        const location = await Location.getCurrentPositionAsync({});
-        const nextCoordinate = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        };
-        const nextBars = await getNearbyBars({
-          lat: nextCoordinate.latitude,
-          lng: nextCoordinate.longitude,
-        });
-
-        if (isMounted) {
-          setUserCoordinate(nextCoordinate);
-          setBars(nextBars);
-          setStatusMessage(nextBars.length === 0 ? 'No nearby bars found.' : '');
-          mapRef.current?.animateToRegion(
-            {
-              ...nextCoordinate,
-              latitudeDelta: 0.035,
-              longitudeDelta: 0.035,
-            },
-            650,
-          );
-        }
-      } catch (error) {
-        if (isMounted) {
-          setBars([]);
-          const message = error instanceof Error ? error.message : 'Unable to load nearby bars.';
-          setStatusMessage(message);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
+    if (nearbyRegion) {
+      setMapRegion(nearbyRegion);
+    } else if (nearbyError && bars.length === 0) {
+      setMapRegion(shanghaiRegion);
     }
 
-    void loadNearbyBars();
+    if (lastLocation) {
+      setUserCoordinate(lastLocation);
+    }
 
-    return () => {
-      isMounted = false;
-    };
+    setStatusMessage(nearbyError && bars.length === 0 ? nearbyError : '');
+  }, [bars.length, lastLocation, nearbyError, nearbyRegion]);
+
+  useEffect(() => {
+    void refreshNearby({ background: bars.length > 0 });
   }, []);
 
   const openBarDetails = async (bar: MapBar) => {
@@ -142,18 +133,32 @@ export default function MapScreen() {
     }
   };
 
-  const findLocalMatch = (bar: MapBar, localBars: Bar[]) =>
-    localBars.some((localBar) => {
-      const sameId = localBar.id === bar.id;
-      const sameName = localBar.name === bar.name;
-      const sameLocation =
-        Math.abs(Number(localBar.latitude) - Number(bar.latitude)) < 0.00001 &&
-        Math.abs(Number(localBar.longitude) - Number(bar.longitude)) < 0.00001;
-      return sameId || sameName || sameLocation;
-    });
+  const findLocalMatch = (bar: MapBar, localBars: Bar[]) => {
+    if (!authUserId) {
+      return false;
+    }
+
+    const localBarId = getLocalBarId(bar);
+    if (localBarId === null) {
+      return false;
+    }
+
+    return localBars.some((localBar) => Number(localBar.id) === localBarId);
+  };
 
   const isVisitedBar = (bar: MapBar) => findLocalMatch(bar, visitedBars);
   const isSavedBar = (bar: MapBar) => findLocalMatch(bar, savedBars);
+  const getMarkerState = (bar: MapBar): MarkerState => {
+    if (isVisitedBar(bar)) {
+      return 'visited';
+    }
+
+    if (isSavedBar(bar)) {
+      return 'saved';
+    }
+
+    return 'normal';
+  };
 
   const moveToUserLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -163,13 +168,18 @@ export default function MapScreen() {
       return;
     }
 
-    const location = await Location.getCurrentPositionAsync({});
+    const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     const nextCoordinate = {
       latitude: location.coords.latitude,
       longitude: location.coords.longitude,
     };
 
     setUserCoordinate(nextCoordinate);
+    setMapRegion({
+      ...nextCoordinate,
+      latitudeDelta: 0.025,
+      longitudeDelta: 0.025,
+    });
     setStatusMessage('');
     mapRef.current?.animateToRegion(
       {
@@ -182,31 +192,59 @@ export default function MapScreen() {
   };
 
   useEffect(() => {
+    if (isAuthInitializing) {
+      return;
+    }
+
+    if (!authUserId) {
+      clearSavedBars();
+      clearVisitedBars();
+      return;
+    }
+
+    clearSavedBars();
+    clearVisitedBars();
     void loadVisited();
     void loadFavorites();
-  }, [loadFavorites, loadVisited]);
+  }, [authUserId, clearSavedBars, clearVisitedBars, isAuthInitializing, loadFavorites, loadVisited]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAuthInitializing) {
+        if (authUserId) {
+          void loadVisited();
+          void loadFavorites();
+        } else {
+          clearSavedBars();
+          clearVisitedBars();
+        }
+      }
+
+      return undefined;
+    }, [authUserId, clearSavedBars, clearVisitedBars, isAuthInitializing, loadFavorites, loadVisited]),
+  );
 
   return (
     <View style={styles.screen}>
-      <MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFillObject}
-        initialRegion={shanghaiRegion}
-        moveOnMarkerPress={false}
-        onPress={() => setSelectedBar(null)}
-        pitchEnabled={false}
-        rotateEnabled={false}
-        showsCompass={false}
-      >
+      {mapRegion ? (
+        <MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFillObject}
+          initialRegion={mapRegion}
+          moveOnMarkerPress={false}
+          onPress={() => setSelectedBar(null)}
+          pitchEnabled={false}
+          rotateEnabled={false}
+          showsCompass={false}
+        >
         {validBars.map((bar) => {
-          const visited = isVisitedBar(bar);
-          const saved = isSavedBar(bar);
+          const markerState = getMarkerState(bar);
 
           return (
             <Marker
               key={String(bar.id)}
               coordinate={{ latitude: bar.latitude, longitude: bar.longitude }}
-              tracksViewChanges={false}
+              tracksViewChanges
               anchor={{ x: 0.5, y: 0.5 }}
               onPress={(event) => {
                 event.stopPropagation?.();
@@ -218,9 +256,7 @@ export default function MapScreen() {
                 setSelectedBar(bar);
               }}
             >
-              <View style={[styles.poiMarker, visited && styles.poiMarkerVisited]}>
-                <Ionicons name={visited ? 'checkmark' : saved ? 'bookmark' : 'wine'} size={13} color="#ffffff" />
-              </View>
+              <VesperMarker state={markerState} />
             </Marker>
           );
         })}
@@ -232,7 +268,14 @@ export default function MapScreen() {
             </View>
           </Marker>
         ) : null}
-      </MapView>
+        </MapView>
+      ) : (
+        <View style={styles.mapLoadingState}>
+          <ActivityIndicator color="#8b5cf6" />
+          <Text style={styles.mapLoadingTitle}>Finding your location</Text>
+          <Text style={styles.mapLoadingText}>Nearby bars will appear once location is ready.</Text>
+        </View>
+      )}
 
       <SafeAreaView pointerEvents="box-none" style={styles.overlay} edges={['top']}>
         <View style={styles.topControls}>
@@ -313,6 +356,15 @@ const floatingShadow = {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#eef0ed' },
+  mapLoadingState: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f5f3ff',
+    paddingHorizontal: 28,
+  },
+  mapLoadingTitle: { marginTop: 12, color: '#111827', fontSize: 18, fontWeight: '900' },
+  mapLoadingText: { marginTop: 6, color: '#71717a', fontSize: 13, lineHeight: 19, textAlign: 'center' },
   overlay: {
     position: 'absolute',
     left: 0,
@@ -373,16 +425,20 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     borderWidth: 2,
     borderColor: '#ffffff',
-    backgroundColor: '#6d5df6',
-    shadowColor: '#6d5df6',
+    backgroundColor: '#dc2626',
+    shadowColor: '#dc2626',
     shadowOpacity: 0.24,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
     elevation: 7,
   },
+  poiMarkerSaved: {
+    backgroundColor: '#6d5df6',
+    shadowColor: '#6d5df6',
+  },
   poiMarkerVisited: {
-    backgroundColor: '#ec4899',
-    shadowColor: '#ec4899',
+    backgroundColor: '#16a34a',
+    shadowColor: '#16a34a',
   },
   messageBadge: {
     alignSelf: 'center',

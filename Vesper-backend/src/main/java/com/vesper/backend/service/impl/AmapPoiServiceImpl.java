@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.vesper.backend.dto.ImportPoiRequest;
 import com.vesper.backend.entity.Bar;
+import com.vesper.backend.entity.Review;
 import com.vesper.backend.exception.BusinessException;
 import com.vesper.backend.mapper.BarMapper;
+import com.vesper.backend.mapper.ReviewMapper;
 import com.vesper.backend.service.PoiService;
 import com.vesper.backend.vo.BarVO;
 import com.vesper.backend.vo.PoiVO;
@@ -19,6 +21,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,6 +63,7 @@ public class AmapPoiServiceImpl implements PoiService {
 
     private final RestTemplate restTemplate;
     private final BarMapper barMapper;
+    private final ReviewMapper reviewMapper;
 
     @Value("${amap.api-key:}")
     private String amapApiKey;
@@ -93,6 +97,7 @@ public class AmapPoiServiceImpl implements PoiService {
                 for (JsonNode poiNode : response.path("pois")) {
                     parsePoi(poiNode)
                             .filter(this::isRelevantBar)
+                            .map(this::mergeLocalBarState)
                             .ifPresent(pois::add);
                 }
             }
@@ -148,6 +153,8 @@ public class AmapPoiServiceImpl implements PoiService {
             poi.setDistance(parseInteger(poiNode.path("distance").asText()));
             poi.setCoverImage(null);
             poi.setRating(null);
+            poi.setAverageRating(null);
+            poi.setReviewCount(0);
             return Optional.of(poi);
         } catch (NumberFormatException exception) {
             return Optional.empty();
@@ -184,6 +191,33 @@ public class AmapPoiServiceImpl implements PoiService {
         } catch (NumberFormatException exception) {
             return null;
         }
+    }
+
+    private PoiVO mergeLocalBarState(PoiVO poi) {
+        Bar localBar = barMapper.selectOne(new LambdaQueryWrapper<Bar>()
+                .eq(Bar::getExternalId, poi.getId())
+                .last("LIMIT 1"));
+
+        if (localBar == null) {
+            return poi;
+        }
+
+        poi.setLocalBarId(localBar.getId());
+        poi.setCoverImage(localBar.getCoverImage());
+        poi.setRating(localBar.getRating());
+
+        List<Review> reviews = reviewMapper.selectList(new LambdaQueryWrapper<Review>()
+                .eq(Review::getBarId, localBar.getId()));
+        poi.setReviewCount(reviews.size());
+
+        if (!reviews.isEmpty()) {
+            BigDecimal total = reviews.stream()
+                    .map(review -> BigDecimal.valueOf(review.getRating()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            poi.setAverageRating(total.divide(BigDecimal.valueOf(reviews.size()), 1, RoundingMode.HALF_UP));
+        }
+
+        return poi;
     }
 
     private String trimToNull(String value) {

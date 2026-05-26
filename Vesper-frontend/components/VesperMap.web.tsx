@@ -15,6 +15,14 @@ const pins: ViewStyle[] = [
 ];
 const webBars: Bar[] = featuredBars.map((bar, index) => ({ ...bar, id: String(index + 1) }));
 
+function VesperMarker() {
+  return (
+    <View style={styles.markerInner}>
+      <Ionicons name="wine" size={15} color="#ffffff" />
+    </View>
+  );
+}
+
 export default function VesperMap() {
   const [selectedBar, setSelectedBar] = useState<Bar | null>(null);
 
@@ -54,7 +62,7 @@ export default function VesperMap() {
                     setSelectedBar(bar);
                   }}
                 >
-                  <Ionicons name="wine" size={15} color="#ffffff" />
+                  <VesperMarker />
                 </Pressable>
               );
             })}
@@ -132,15 +140,21 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 38,
     height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markerInner: {
+    width: 38,
+    height: 38,
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#dc2626',
     borderWidth: 3,
     borderColor: '#ffffff',
     opacity: 0.85,
   },
-  markerSelected: { backgroundColor: '#111111', opacity: 1, transform: [{ scale: 1.08 }] },
+  markerSelected: { opacity: 1, transform: [{ scale: 1.08 }] },
   mapLabel: { position: 'absolute', left: 22, bottom: 22, color: '#6d28d9', fontSize: 13, fontWeight: '900' },
   previewCard: { marginTop: 18, padding: 18, borderRadius: 28, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#f4f4f5' },
   previewTop: { flexDirection: 'row', alignItems: 'center' },

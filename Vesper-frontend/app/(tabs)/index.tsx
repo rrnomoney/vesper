@@ -1,61 +1,127 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { Bar } from '../../data/bars';
 import { homeCategories } from '../../data/bars';
 import { getBarTags, getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../../lib/barDisplay';
-import { getBars } from '../../lib/bars';
 import { getAuthToken } from '../../lib/authSession';
 import { pushBarDetail } from '../../lib/navigation';
+import { refreshNearby, useNearbyStore, type NearbyBar } from '../../lib/nearbyCache';
+import { importPoi } from '../../lib/pois';
+import { useAuthStore } from '../../stores/authStore';
 import { useSavedStore } from '../../stores/savedStore';
 import { useVisitedStore } from '../../stores/visitedStore';
 
+type HomeBar = NearbyBar;
+
+function getLocalBarId(bar: HomeBar) {
+  const localBarId = 'localBarId' in bar ? bar.localBarId : bar.id;
+  const numericId = Number(localBarId);
+  return Number.isFinite(numericId) ? String(numericId) : null;
+}
+
 export default function HomeScreen() {
-  const [bars, setBars] = useState<Bar[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [bars, setBars] = useState<HomeBar[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [activeCategory, setActiveCategory] = useState(homeCategories[0]);
+  const [openingBarId, setOpeningBarId] = useState<string | null>(null);
+  const authUserId = useAuthStore((state) => state.user?.id ?? null);
+  const isAuthInitializing = useAuthStore((state) => state.isInitializing);
   const visitedBarIds = useVisitedStore((state) => state.visitedBarIds);
   const loadVisited = useVisitedStore((state) => state.loadVisited);
+  const clearVisitedBars = useVisitedStore((state) => state.clearVisitedBars);
   const savedBarIds = useSavedStore((state) => state.savedBarIds);
   const savedErrorMessage = useSavedStore((state) => state.errorMessage);
   const syncingBarIds = useSavedStore((state) => state.syncingBarIds);
   const loadFavorites = useSavedStore((state) => state.loadFavorites);
+  const clearSavedBars = useSavedStore((state) => state.clearSavedBars);
   const toggleSavedBar = useSavedStore((state) => state.toggleSavedBar);
+  const nearbyBars = useNearbyStore((state) => state.bars);
+  const isNearbyLoading = useNearbyStore((state) => state.loading);
+  const nearbyError = useNearbyStore((state) => state.error);
+  const nearbyLastFetchedAt = useNearbyStore((state) => state.lastFetchedAt);
 
-  function getCurrentBarsParams() {
-    const keyword = searchText.trim();
+  async function loadNearbyBars(options?: { showLoading?: boolean; refreshing?: boolean }) {
+    const refreshing = options?.refreshing ?? false;
 
-    if (keyword) {
-      return { keyword };
+    if (refreshing) {
+      setIsRefreshing(true);
     }
-
-    if (activeCategory !== 'Nearby') {
-      return { keyword: activeCategory };
-    }
-
-    return undefined;
-  }
-
-  async function loadBars(params = getCurrentBarsParams()) {
-    setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const nextBars = await getBars(params);
-      setBars(nextBars);
+      await refreshNearby({ force: refreshing, background: !options?.showLoading });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to load bars.');
+      setErrorMessage('Unable to load nearby bars');
     } finally {
-      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }
+
+  async function refreshHomeBars() {
+    await Promise.all([loadFavorites(), loadVisited(), loadNearbyBars({ refreshing: true })]);
+  }
+
+  const isInitialNearbyLoading = bars.length === 0 && !nearbyError && (isNearbyLoading || nearbyLastFetchedAt === 0);
+  const isRefreshingNearby = isNearbyLoading && bars.length > 0;
+
+  useEffect(() => {
+    setBars(nearbyBars);
+    setErrorMessage(nearbyBars.length > 0 ? null : nearbyError);
+  }, [nearbyBars, nearbyError]);
+
+  async function openBarDetails(bar: HomeBar) {
+    if (!bar.id.startsWith('amap:')) {
+      pushBarDetail(bar.id);
+      return;
+    }
+
+    if (openingBarId === bar.id) {
+      return;
+    }
+
+    setOpeningBarId(bar.id);
+    setErrorMessage(null);
+
+    try {
+      const importedBar = await importPoi({
+        externalId: 'poiId' in bar ? bar.poiId : bar.id.replace(/^amap:/, ''),
+        name: bar.name,
+        address: bar.neighborhood,
+        latitude: bar.latitude,
+        longitude: bar.longitude,
+        category: bar.type,
+        coverImage: bar.image,
+      });
+      pushBarDetail(importedBar.id);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to open bar details.');
+    } finally {
+      setOpeningBarId(null);
     }
   }
 
   function handleBookmarkPress(barId: string) {
+    if (barId.startsWith('amap:')) {
+      Alert.alert('Open details first', 'Open this place once so Vesper can save it as a local bar.');
+      return;
+    }
+
     if (!getAuthToken()) {
       router.push({
         pathname: '/login',
@@ -68,23 +134,57 @@ export default function HomeScreen() {
   }
 
   useEffect(() => {
+    if (isAuthInitializing) {
+      return;
+    }
+
+    if (!authUserId) {
+      clearSavedBars();
+      clearVisitedBars();
+      return;
+    }
+
+    clearSavedBars();
+    clearVisitedBars();
     void loadFavorites();
     void loadVisited();
-  }, []);
+  }, [authUserId, clearSavedBars, clearVisitedBars, isAuthInitializing, loadFavorites, loadVisited]);
 
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      void loadBars();
-    }, 300);
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAuthInitializing) {
+        if (authUserId) {
+          void loadFavorites();
+          void loadVisited();
+        } else {
+          clearSavedBars();
+          clearVisitedBars();
+        }
+      }
 
-    return () => {
-      clearTimeout(timeoutId);
-    };
-  }, [searchText, activeCategory]);
+      void loadNearbyBars({ showLoading: nearbyLastFetchedAt === 0 });
+
+      return undefined;
+    }, [
+      activeCategory,
+      authUserId,
+      clearSavedBars,
+      clearVisitedBars,
+      isAuthInitializing,
+      loadFavorites,
+      loadVisited,
+      searchText,
+      nearbyLastFetchedAt,
+    ]),
+  );
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={isRefreshing} tintColor="#8b5cf6" onRefresh={() => void refreshHomeBars()} />}
+      >
         <View style={styles.header}>
           <View>
             <Text style={styles.logo}>Vesper</Text>
@@ -93,7 +193,7 @@ export default function HomeScreen() {
               onPress={() => Alert.alert('Coming soon', 'City selection will be available later.')}
             >
               <Ionicons name="location" size={14} color="#8b5cf6" />
-              <Text style={styles.city}>Demo data</Text>
+              <Text style={styles.city}>Nearby</Text>
               <Ionicons name="chevron-down" size={14} color="#a1a1aa" />
             </Pressable>
           </View>
@@ -141,8 +241,7 @@ export default function HomeScreen() {
 
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.sectionTitle}>Available Bars</Text>
-            <Text style={styles.sectionSubtitle}>Demo places for the current integration build.</Text>
+            <Text style={styles.sectionTitle}>Nearby Bars</Text>
           </View>
           <Text style={styles.seeAll}>See all</Text>
         </View>
@@ -154,19 +253,25 @@ export default function HomeScreen() {
               <Text style={styles.inlineErrorText}>{savedErrorMessage}</Text>
             </View>
           ) : null}
+          {isRefreshingNearby ? (
+            <View style={styles.inlineError}>
+              <ActivityIndicator color="#8b5cf6" size="small" />
+              <Text style={styles.inlineErrorText}>Refreshing nearby bars</Text>
+            </View>
+          ) : null}
 
-          {isLoading ? (
+          {isInitialNearbyLoading ? (
             <View style={styles.stateCard}>
               <ActivityIndicator color="#8b5cf6" />
               <Text style={styles.stateTitle}>Loading bars</Text>
-              <Text style={styles.stateText}>Loading available demo bars.</Text>
+              <Text style={styles.stateText}>Finding nearby bars around you.</Text>
             </View>
-          ) : errorMessage ? (
+          ) : errorMessage && bars.length === 0 ? (
             <View style={styles.stateCard}>
               <Ionicons name="warning-outline" size={22} color="#8b5cf6" />
               <Text style={styles.stateTitle}>Could not load bars</Text>
               <Text style={styles.stateText}>{errorMessage}</Text>
-              <Pressable style={styles.retryButton} onPress={() => void loadBars()}>
+              <Pressable style={styles.retryButton} onPress={() => void loadNearbyBars()}>
                 <Text style={styles.retryText}>Try again</Text>
               </Pressable>
             </View>
@@ -178,16 +283,17 @@ export default function HomeScreen() {
             </View>
           ) : (
             bars.map((bar) => {
-            const isVisited = visitedBarIds.includes(bar.id);
-            const isSaved = savedBarIds.includes(bar.id);
-            const isSyncing = syncingBarIds.includes(bar.id);
+            const localBarId = getLocalBarId(bar);
+            const isVisited = !!localBarId && visitedBarIds.some((id) => Number(id) === Number(localBarId));
+            const isSaved = !!localBarId && savedBarIds.some((id) => Number(id) === Number(localBarId));
+            const isSyncing = !!localBarId && syncingBarIds.some((id) => Number(id) === Number(localBarId));
             const ratingSummary = getRatingSummary(bar, 'New');
             const tags = getBarTags(bar);
             const primaryTag = getPrimaryBarTag(bar);
             const shouldShowPrice = hasReliablePrice(bar);
 
             return (
-              <Pressable key={bar.id} style={styles.card} onPress={() => pushBarDetail(bar.id)}>
+              <Pressable key={bar.id} style={styles.card} onPress={() => void openBarDetails(bar)}>
                 <View style={styles.imageWrap}>
                   <Image source={{ uri: bar.image }} style={styles.image} />
                   <View style={styles.distanceBadge}>
@@ -211,11 +317,13 @@ export default function HomeScreen() {
                     </View>
                     <Pressable
                       hitSlop={8}
-                      disabled={isSyncing}
+                      disabled={isSyncing || !localBarId}
                       style={[styles.saveButton, isSyncing && styles.saveButtonDisabled]}
                       onPress={(event) => {
                         event.stopPropagation();
-                        handleBookmarkPress(bar.id);
+                        if (localBarId) {
+                          handleBookmarkPress(localBarId);
+                        }
                       }}
                     >
                       <Ionicons
@@ -238,6 +346,12 @@ export default function HomeScreen() {
                     <Text style={[styles.rating, !ratingSummary.hasReviews && styles.emptyRating]}>{ratingSummary.text}</Text>
                     {shouldShowPrice ? <Text style={styles.price}>{bar.price}</Text> : <Text style={styles.priceMuted}>{primaryTag}</Text>}
                   </View>
+                  {openingBarId === bar.id ? (
+                    <View style={styles.openingRow}>
+                      <ActivityIndicator color="#8b5cf6" size="small" />
+                      <Text style={styles.openingText}>Opening details</Text>
+                    </View>
+                  ) : null}
                 </View>
               </Pressable>
             );
@@ -301,7 +415,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   sectionTitle: { color: '#111111', fontSize: 23, fontWeight: '800' },
-  sectionSubtitle: { marginTop: 4, color: '#71717a', fontSize: 13 },
   seeAll: { color: '#8b5cf6', fontSize: 14, fontWeight: '700' },
   list: { marginTop: 16 },
   card: {
@@ -364,6 +477,8 @@ const styles = StyleSheet.create({
   emptyRating: { color: '#7c3aed' },
   price: { color: '#27272a', fontSize: 14, fontWeight: '800' },
   priceMuted: { color: '#71717a', fontSize: 13, fontWeight: '800' },
+  openingRow: { marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  openingText: { color: '#7c3aed', fontSize: 12, fontWeight: '800' },
   stateCard: {
     alignItems: 'center',
     borderRadius: 26,

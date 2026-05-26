@@ -25,6 +25,7 @@ import type { Bar } from '../../data/bars';
 import { getRatingSummary, hasReliablePrice } from '../../lib/barDisplay';
 import { getBarById } from '../../lib/bars';
 import { getAuthToken } from '../../lib/authSession';
+import { updateNearbyReviewSummary } from '../../lib/nearbyCache';
 import { createReview, getBarReviews, type ReviewVO } from '../../lib/reviews';
 import { resolveAssetUrl, uploadImage, type UploadImageInput } from '../../lib/upload';
 import { useReviewStore } from '../../stores/reviewStore';
@@ -275,6 +276,7 @@ export default function BarDetailScreen() {
         imageUrls,
       });
       addMyReview(newReview);
+      updateNearbyReviewSummary(bar.id, newReview.rating);
       Keyboard.dismiss();
       setIsReviewModalVisible(false);
       setReviewContent('');

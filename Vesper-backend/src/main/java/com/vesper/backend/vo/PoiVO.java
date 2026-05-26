@@ -9,6 +9,8 @@ public class PoiVO {
 
     private String id;
 
+    private Long localBarId;
+
     private String name;
 
     private String address;
@@ -24,4 +26,8 @@ public class PoiVO {
     private String coverImage;
 
     private BigDecimal rating;
+
+    private BigDecimal averageRating;
+
+    private Integer reviewCount;
 }

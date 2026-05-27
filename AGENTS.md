@@ -70,6 +70,32 @@ Frontend:
 - Do not commit uploaded image files.
 - `application-local.yml`, `.env`, `.env.*`, and `uploads/` must stay ignored by git.
 
+## Database Migration Rule
+
+1. Whenever backend entity / VO / mapper / schema changes add new database fields or tables, Codex must check whether the local MySQL schema is already migrated.
+2. If `schema.sql` is changed, do not assume the existing local database has been updated automatically.
+3. Before running or testing backend features that depend on new columns/tables, Codex must:
+   - read `application.yml` / `application-local.yml` to confirm the active database
+   - inspect the target table schema
+   - compare it with `schema.sql` / entity fields
+   - if columns/tables are missing, ask for permission or provide `ALTER TABLE` SQL
+4. For local development only, if the user explicitly approves, Codex may execute safe `ALTER TABLE` migration SQL.
+5. Never modify `application-local.yml` or expose real database password.
+6. Never drop tables or delete data unless the user explicitly asks.
+7. After migration, verify with `DESCRIBE table_name`.
+8. Include migration status in `READY FOR REVIEW` output.
+
+Migration note, 2026-05-27:
+
+The local MySQL `bars` table was migrated with:
+
+- `phone`
+- `business_hours`
+- `formatted_address`
+- `poi_type`
+- `website`
+- `amap_photo_urls`
+
 ## Validation After Changes
 
 After code changes, run:

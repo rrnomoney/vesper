@@ -22,6 +22,12 @@ export type Bar = {
   about: string;
   reviewHighlights: BarReview[];
   isImported?: boolean;
+  phone?: string | null;
+  businessHours?: string | null;
+  formattedAddress?: string | null;
+  poiType?: string | null;
+  website?: string | null;
+  amapPhotoUrls?: string[];
 };
 
 export const featuredBars: Bar[] = [

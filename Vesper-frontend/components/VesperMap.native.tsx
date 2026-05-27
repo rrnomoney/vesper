@@ -20,7 +20,7 @@ import { homeCategories, type Bar } from '../data/bars';
 import { getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../lib/barDisplay';
 import { filterBars } from '../lib/barFilters';
 import { pushBarDetail } from '../lib/navigation';
-import { refreshNearby, useNearbyStore, type NearbyBar } from '../lib/nearbyCache';
+import { refreshNearby, updateNearbyImportedBar, useNearbyStore, type NearbyBar } from '../lib/nearbyCache';
 import { importPoi } from '../lib/pois';
 import { useAuthStore } from '../stores/authStore';
 import { useSavedStore } from '../stores/savedStore';
@@ -59,6 +59,10 @@ function getLocalBarId(bar: MapBar) {
   const localBarId = 'localBarId' in bar ? bar.localBarId : bar.id;
   const numericId = Number(localBarId);
   return Number.isFinite(numericId) ? numericId : null;
+}
+
+function isAmapPoiBar(bar: MapBar): bar is MapBar & { source: 'amap'; poiId: string } {
+  return 'source' in bar && bar.source === 'amap';
 }
 
 export default function MapScreen() {
@@ -125,7 +129,7 @@ export default function MapScreen() {
   }, []);
 
   const openBarDetails = async (bar: MapBar) => {
-    if (!bar.id.startsWith('amap:')) {
+    if (!isAmapPoiBar(bar)) {
       pushBarDetail(bar.id);
       return;
     }
@@ -139,7 +143,7 @@ export default function MapScreen() {
 
     try {
       const importedBar = await importPoi({
-        externalId: bar.id.replace(/^amap:/, ''),
+        externalId: bar.poiId,
         name: bar.name,
         address: bar.neighborhood,
         latitude: bar.latitude,
@@ -147,6 +151,7 @@ export default function MapScreen() {
         category: bar.type,
         coverImage: bar.image,
       });
+      updateNearbyImportedBar(importedBar);
       pushBarDetail(importedBar.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to open details.';

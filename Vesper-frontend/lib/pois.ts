@@ -1,5 +1,5 @@
 import { apiGet, apiPost } from './api';
-import { cleanCategoryLabel, getMapDiscoveredAbout } from './barDisplay';
+import { cleanCategoryLabel, defaultBarImage, getMapDiscoveredAbout } from './barDisplay';
 import { mapBarVOToBar, type BarVO } from './bars';
 import type { Bar } from '../data/bars';
 
@@ -32,9 +32,6 @@ export type ImportPoiPayload = {
   category: string | null;
   coverImage: string | null;
 };
-
-const fallbackCoverImage =
-  'https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=900&q=85';
 
 function toNumber(value: number | string | null, fallback = 0) {
   if (value === null) {
@@ -82,7 +79,7 @@ export function mapPoiToBar(poi: PoiVO): PoiBar {
     latitude: toNumber(poi.latitude),
     longitude: toNumber(poi.longitude),
     isSaved: false,
-    image: poi.coverImage || fallbackCoverImage,
+    image: poi.coverImage || defaultBarImage,
     tags: [cleanCategoryLabel(poi.category)],
     about: getMapDiscoveredAbout(poi.address),
     reviewHighlights: [],

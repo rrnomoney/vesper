@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import { create } from 'zustand';
 
 import type { Bar } from '../data/bars';
+import { getBars } from './bars';
 import { getNearbyBars, type PoiBar } from './pois';
 
 export type NearbyBar = Bar | PoiBar;
@@ -69,6 +70,44 @@ export function setNearbyCache(bars: NearbyBar[], region: NearbyRegion | null) {
   });
 }
 
+function mergeLocalEnrichment(nearbyBars: NearbyBar[], localBars: Bar[]) {
+  const localBarsById = new Map(localBars.map((bar) => [String(bar.id), bar]));
+
+  return nearbyBars.map((bar) => {
+    const localBarId = 'localBarId' in bar ? bar.localBarId : bar.id;
+    const localBar = localBarId === null || localBarId === undefined ? null : localBarsById.get(String(localBarId));
+
+    if (!localBar) {
+      return bar;
+    }
+
+    return {
+      ...bar,
+      id: String(localBar.id),
+      localBarId: String(localBar.id),
+      image: localBar.image || bar.image,
+      phone: localBar.phone,
+      businessHours: localBar.businessHours,
+      formattedAddress: localBar.formattedAddress,
+      website: localBar.website,
+      amapPhotoUrls: localBar.amapPhotoUrls,
+    };
+  });
+}
+
+async function hydrateNearbyBars(nearbyBars: NearbyBar[]) {
+  if (!nearbyBars.some((bar) => 'localBarId' in bar && bar.localBarId)) {
+    return nearbyBars;
+  }
+
+  try {
+    const localBars = await getBars();
+    return mergeLocalEnrichment(nearbyBars, localBars);
+  } catch {
+    return nearbyBars;
+  }
+}
+
 export async function refreshNearby(options?: { force?: boolean; background?: boolean }) {
   const currentState = useNearbyStore.getState();
 
@@ -98,10 +137,10 @@ export async function refreshNearby(options?: { force?: boolean; background?: bo
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       };
-      const nextBars = await getNearbyBars({
+      const nextBars = await hydrateNearbyBars(await getNearbyBars({
         lat: nextLocation.latitude,
         lng: nextLocation.longitude,
-      });
+      }));
       const nextRegion = {
         ...nextLocation,
         latitudeDelta: 0.035,
@@ -164,5 +203,37 @@ export function updateNearbyReviewSummary(barId: string | number, rating: number
     useNearbyStore.setState({
       bars,
     });
+  }
+}
+
+export function updateNearbyImportedBar(importedBar: Bar) {
+  let changed = false;
+  const importedId = String(importedBar.id);
+
+  const state = useNearbyStore.getState();
+  const bars = state.bars.map((bar) => {
+    const localBarId = 'localBarId' in bar ? bar.localBarId : bar.id;
+    const matchesLocalId = localBarId !== null && localBarId !== undefined && String(localBarId) === importedId;
+
+    if (!matchesLocalId) {
+      return bar;
+    }
+
+    changed = true;
+    return {
+      ...bar,
+      id: importedId,
+      localBarId: importedId,
+      image: importedBar.image || bar.image,
+      phone: importedBar.phone,
+      businessHours: importedBar.businessHours,
+      formattedAddress: importedBar.formattedAddress,
+      website: importedBar.website,
+      amapPhotoUrls: importedBar.amapPhotoUrls,
+    };
+  });
+
+  if (changed) {
+    useNearbyStore.setState({ bars });
   }
 }

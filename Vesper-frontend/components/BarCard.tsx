@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, Text, View } from 'react-native';
 
 import { Bar } from '../data/bars';
-import { getPrimaryBarTag, getStarRatingDisplay, hasReliablePrice } from '../lib/barDisplay';
+import { getPrimaryBarImage, getPrimaryBarTag, getStarRatingDisplay, hasReliablePrice } from '../lib/barDisplay';
 
 function StarRatingRow({ filledStars, text, hasReviews }: { filledStars: number; text: string; hasReviews: boolean }) {
   const [ratingText, countText] = text.match(/^(.+?)\s(\(.+\))$/)?.slice(1) ?? [text, ''];
@@ -27,11 +27,12 @@ function StarRatingRow({ filledStars, text, hasReviews }: { filledStars: number;
 export function BarCard({ bar }: { bar: Bar }) {
   const ratingDisplay = getStarRatingDisplay(bar, 'New');
   const primaryTag = getPrimaryBarTag(bar);
+  const imageUrl = getPrimaryBarImage(bar);
 
   return (
     <Pressable className="mb-4 flex-row overflow-hidden rounded-[24px] border border-white bg-white shadow-lg shadow-violet-100">
       <View className="relative h-[116px] w-[118px]">
-        <Image source={{ uri: bar.image }} className="h-full w-full" resizeMode="cover" />
+        <Image source={{ uri: imageUrl }} className="h-full w-full" resizeMode="cover" />
         <View className="absolute left-2 top-2 rounded-full bg-black/45 px-2.5 py-1">
           <Text className="text-[11px] font-semibold text-white">{bar.distance}</Text>
         </View>

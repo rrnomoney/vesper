@@ -5,12 +5,12 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -24,7 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RatingPicker } from '../../components/RatingPicker';
 import type { Bar } from '../../data/bars';
-import { getDetailAboutText, getDetailMetadata, getStarRatingDisplay } from '../../lib/barDisplay';
+import { defaultBarImage, getDetailAboutText, getDetailMetadata, getStarRatingDisplay } from '../../lib/barDisplay';
 import { getAuthToken } from '../../lib/authSession';
 import { getBarById } from '../../lib/bars';
 import { updateNearbyReviewSummary } from '../../lib/nearbyCache';
@@ -67,13 +67,20 @@ function getReviewImages(reviews: ReviewVO[]): GalleryImage[] {
   );
 }
 
-function getHeroImages(bar: Bar, reviewImages: GalleryImage[]) {
-  const fallbackImage = 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
-  const urls = [bar.image, ...reviewImages.map((image) => image.url), fallbackImage]
+function getHeroImages(bar: Bar) {
+  const urls = [...(Array.isArray(bar.amapPhotoUrls) ? bar.amapPhotoUrls : []), bar.image, defaultBarImage]
     .filter(Boolean)
     .map((url) => resolveAssetUrl(url));
 
   return Array.from(new Set(urls));
+}
+
+function hasDetailValue(value: string | null | undefined) {
+  return Boolean(value && value.trim());
+}
+
+function getPhoneNumbers(value: string | null | undefined) {
+  return value?.split(/[;,\s]+/).map((phone) => phone.trim()).filter(Boolean) ?? [];
 }
 
 function formatReviewDate(value: string | null) {
@@ -112,7 +119,7 @@ function ReviewStars({ rating }: { rating: number }) {
   return (
     <View style={styles.reviewStars}>
       {[0, 1, 2, 3, 4].map((index) => (
-        <Ionicons key={index} name={index < filledStars ? 'star' : 'star-outline'} size={12} color="#f59e0b" />
+        <Ionicons key={index} name={index < filledStars ? 'star' : 'star-outline'} size={13} color="#f59e0b" />
       ))}
       <Text style={styles.reviewRating}>{numericRating.toFixed(1)}</Text>
     </View>
@@ -391,9 +398,9 @@ export default function BarDetailScreen() {
     void toggleSavedBar(bar.id);
   }
 
-  function handleHeroScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const page = Math.round(event.nativeEvent.contentOffset.x / Math.max(screenWidth, 1));
-    setHeroPage(page);
+  function handleHeroScroll(offsetX: number) {
+    const nextPage = Math.round(offsetX / Math.max(screenWidth, 1));
+    setHeroPage((currentPage) => (nextPage === currentPage ? currentPage : nextPage));
   }
 
   function handleAddressPress() {
@@ -407,6 +414,18 @@ export default function BarDetailScreen() {
         id: bar.id,
       },
     });
+  }
+
+  async function handlePhonePress(phone: string) {
+    if (!phone) {
+      return;
+    }
+
+    try {
+      await Linking.openURL(`tel:${phone}`);
+    } catch {
+      Alert.alert('Unable to call', 'This device cannot open the phone dialer.');
+    }
   }
 
   if (isLoading) {
@@ -460,24 +479,40 @@ export default function BarDetailScreen() {
   const metadata = getDetailMetadata(bar, hasRating);
   const about = getDetailAboutText(bar, detailReviewCount || bar.reviews);
   const galleryImages = getReviewImages(reviews);
-  const heroImages = getHeroImages(bar, galleryImages);
+  const heroImages = getHeroImages(bar);
   const canOpenMap = Number.isFinite(bar.latitude) && Number.isFinite(bar.longitude);
+  const phoneNumbers = getPhoneNumbers(bar.phone);
+  const objectiveDetails = [
+    { key: 'hours', label: 'Open Hours', value: bar.businessHours || 'Unavailable', icon: 'time-outline' },
+    { key: 'website', label: 'Website', value: bar.website, icon: 'globe-outline' },
+  ].filter((item) => hasDetailValue(item.value));
 
   return (
     <View style={styles.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.hero}>
-          <ScrollView
+          <FlatList
+            data={heroImages}
             horizontal
             pagingEnabled
+            bounces={false}
+            keyExtractor={(imageUrl) => imageUrl}
+            renderItem={({ item: imageUrl }) => (
+              <Image source={{ uri: imageUrl }} style={[styles.heroImage, { width: screenWidth }]} resizeMode="cover" />
+            )}
+            getItemLayout={(_, index) => ({ length: screenWidth, offset: screenWidth * index, index })}
+            initialNumToRender={1}
+            maxToRenderPerBatch={2}
+            removeClippedSubviews
+            windowSize={3}
+            decelerationRate="fast"
+            snapToAlignment="start"
+            snapToInterval={screenWidth}
             showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={handleHeroScroll}
+            onScroll={(event) => handleHeroScroll(event.nativeEvent.contentOffset.x)}
             scrollEventThrottle={16}
-          >
-            {heroImages.map((imageUrl) => (
-              <Image key={imageUrl} source={{ uri: imageUrl }} style={[styles.heroImage, { width: screenWidth }]} />
-            ))}
-          </ScrollView>
+            style={styles.heroCarousel}
+          />
           <View style={styles.heroShade} />
           {heroImages.length > 1 ? (
             <View style={styles.heroDots}>
@@ -554,6 +589,47 @@ export default function BarDetailScreen() {
               </View>
             ))}
           </View>
+
+          {objectiveDetails.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Details</Text>
+              <View style={styles.objectiveDetails}>
+                {objectiveDetails.map((item) => (
+                  <View key={item.key} style={styles.objectiveRow}>
+                    <View style={styles.objectiveIcon}>
+                      <Ionicons name={item.icon as keyof typeof Ionicons.glyphMap} size={16} color="#7c3aed" />
+                    </View>
+                    <View style={styles.objectiveTextBlock}>
+                      <Text style={styles.objectiveLabel}>{item.label}</Text>
+                      <Text style={styles.objectiveValue}>{item.value}</Text>
+                    </View>
+                  </View>
+                ))}
+                {phoneNumbers.length > 0 ? (
+                  <View style={styles.objectiveRow}>
+                    <View style={styles.objectiveIcon}>
+                      <Ionicons name="call-outline" size={16} color="#7c3aed" />
+                    </View>
+                    <View style={styles.objectiveTextBlock}>
+                      <Text style={styles.objectiveLabel}>Phone</Text>
+                      <View style={styles.phoneList}>
+                        {phoneNumbers.map((phone) => (
+                          <View key={phone} style={styles.phoneNumberRow}>
+                            <Pressable style={({ pressed }) => pressed && styles.objectiveRowPressed} onPress={() => void handlePhonePress(phone)}>
+                              <Text style={styles.objectiveValue}>{phone}</Text>
+                            </Pressable>
+                            <Pressable style={({ pressed }) => [styles.phoneCallButton, pressed && styles.objectiveRowPressed]} onPress={() => void handlePhonePress(phone)}>
+                              <Ionicons name="call" size={13} color="#7c3aed" />
+                            </Pressable>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>About</Text>
@@ -757,7 +833,14 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   retryText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
-  hero: { height: 330, backgroundColor: '#e7e5e4' },
+  hero: {
+    height: 330,
+    overflow: 'hidden',
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    backgroundColor: '#e7e5e4',
+  },
+  heroCarousel: { flex: 1 },
   heroImage: { height: '100%' },
   heroShade: {
     position: 'absolute',
@@ -869,6 +952,46 @@ const styles = StyleSheet.create({
   tag: { borderRadius: 999, backgroundColor: '#f4f4f5', paddingHorizontal: 12, paddingVertical: 8 },
   tagText: { color: '#3f3f46', fontSize: 12, fontWeight: '800' },
   section: { marginTop: 30 },
+  objectiveDetails: { marginTop: 14, gap: 10 },
+  objectiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    borderRadius: 20,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#f1eee8',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  objectiveRowPressed: { opacity: 0.72 },
+  objectiveIcon: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: '#f5f3ff',
+  },
+  objectiveTextBlock: { flex: 1 },
+  objectiveLabel: { color: '#a1a1aa', fontSize: 11, fontWeight: '900', textTransform: 'uppercase' },
+  objectiveValue: { marginTop: 4, color: '#3f3f46', fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  phoneList: { marginTop: 5, gap: 7 },
+  phoneNumberRow: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  phoneCallButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: '#f5f3ff',
+  },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   sectionTitle: { color: '#111111', fontSize: 21, fontWeight: '900' },
   sectionMeta: { marginTop: 4, color: '#a1a1aa', fontSize: 12, fontWeight: '800' },
@@ -946,7 +1069,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
-  reviewStars: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+  reviewStars: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   reviewRating: { color: '#f59e0b', fontSize: 13, fontWeight: '900' },
   reviewText: { marginTop: 13, color: '#52525b', fontSize: 14, lineHeight: 22, fontWeight: '600' },
   reviewImageStrip: { gap: 9, paddingTop: 13, paddingRight: 6 },

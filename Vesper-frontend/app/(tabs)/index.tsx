@@ -20,7 +20,7 @@ import { getBarTags, getPrimaryBarTag, getStarRatingDisplay, hasReliablePrice } 
 import { filterBars } from '../../lib/barFilters';
 import { getAuthToken } from '../../lib/authSession';
 import { pushBarDetail } from '../../lib/navigation';
-import { refreshNearby, useNearbyStore, type NearbyBar } from '../../lib/nearbyCache';
+import { refreshNearby, updateNearbyImportedBar, useNearbyStore, type NearbyBar } from '../../lib/nearbyCache';
 import { importPoi } from '../../lib/pois';
 import { useAuthStore } from '../../stores/authStore';
 import { useSavedStore } from '../../stores/savedStore';
@@ -52,6 +52,10 @@ function getLocalBarId(bar: HomeBar) {
   const localBarId = 'localBarId' in bar ? bar.localBarId : bar.id;
   const numericId = Number(localBarId);
   return Number.isFinite(numericId) ? String(numericId) : null;
+}
+
+function isAmapPoiBar(bar: HomeBar): bar is HomeBar & { source: 'amap'; poiId: string } {
+  return 'source' in bar && bar.source === 'amap';
 }
 
 export default function HomeScreen() {
@@ -109,7 +113,7 @@ export default function HomeScreen() {
   }, [nearbyBars, nearbyError]);
 
   async function openBarDetails(bar: HomeBar) {
-    if (!bar.id.startsWith('amap:')) {
+    if (!isAmapPoiBar(bar)) {
       pushBarDetail(bar.id);
       return;
     }
@@ -123,7 +127,7 @@ export default function HomeScreen() {
 
     try {
       const importedBar = await importPoi({
-        externalId: 'poiId' in bar ? bar.poiId : bar.id.replace(/^amap:/, ''),
+        externalId: bar.poiId,
         name: bar.name,
         address: bar.neighborhood,
         latitude: bar.latitude,
@@ -131,6 +135,7 @@ export default function HomeScreen() {
         category: bar.type,
         coverImage: bar.image,
       });
+      updateNearbyImportedBar(importedBar);
       pushBarDetail(importedBar.id);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to open bar details.');
@@ -314,9 +319,19 @@ export default function HomeScreen() {
             const shouldShowPrice = hasReliablePrice(bar);
 
             return (
-              <Pressable key={bar.id} style={styles.card} onPress={() => void openBarDetails(bar)}>
+              <Pressable
+                key={bar.id}
+                disabled={openingBarId === bar.id}
+                style={[styles.card, openingBarId === bar.id && styles.cardOpening]}
+                onPress={() => void openBarDetails(bar)}
+              >
                 <View style={styles.imageWrap}>
                   <Image source={{ uri: bar.image }} style={styles.image} />
+                  {openingBarId === bar.id ? (
+                    <View style={styles.imageLoadingOverlay}>
+                      <ActivityIndicator color="#ffffff" size="small" />
+                    </View>
+                  ) : null}
                   <View style={styles.distanceBadge}>
                     <Text style={styles.distanceText}>{bar.distance}</Text>
                   </View>
@@ -367,12 +382,6 @@ export default function HomeScreen() {
                     <StarRatingRow {...ratingDisplay} />
                     {shouldShowPrice ? <Text style={styles.price}>{bar.price}</Text> : <Text style={styles.priceMuted}>{primaryTag}</Text>}
                   </View>
-                  {openingBarId === bar.id ? (
-                    <View style={styles.openingRow}>
-                      <ActivityIndicator color="#8b5cf6" size="small" />
-                      <Text style={styles.openingText}>Opening details</Text>
-                    </View>
-                  ) : null}
                 </View>
               </Pressable>
             );
@@ -451,8 +460,15 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 6,
   },
+  cardOpening: { opacity: 0.86 },
   imageWrap: { height: 132, backgroundColor: '#f4f4f5' },
   image: { width: '100%', height: '100%' },
+  imageLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(24,24,27,0.18)',
+  },
   distanceBadge: {
     position: 'absolute',
     left: 12,
@@ -501,8 +517,6 @@ const styles = StyleSheet.create({
   emptyRating: { color: '#7c3aed' },
   price: { color: '#27272a', fontSize: 14, fontWeight: '800' },
   priceMuted: { color: '#71717a', fontSize: 13, fontWeight: '800' },
-  openingRow: { marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  openingText: { color: '#7c3aed', fontSize: 12, fontWeight: '800' },
   stateCard: {
     alignItems: 'center',
     borderRadius: 26,

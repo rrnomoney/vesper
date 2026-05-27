@@ -1,5 +1,13 @@
 import type { Bar } from '../data/bars';
 
+export const defaultBarImage =
+  'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
+
+export function getPrimaryBarImage(input: { amapPhotoUrls?: string[] | null; coverImage?: string | null; image?: string | null }) {
+  const officialPhoto = Array.isArray(input.amapPhotoUrls) ? input.amapPhotoUrls.find(Boolean) : null;
+  return officialPhoto || input.coverImage || input.image || defaultBarImage;
+}
+
 export function cleanCategoryLabel(value: string | null | undefined) {
   const text = (value || '').toLowerCase();
 
@@ -44,7 +52,7 @@ export function getRatingSummary(bar: Pick<Bar, 'rating' | 'reviews'>, emptyText
     return { hasReviews: false, text: emptyText };
   }
 
-  return { hasReviews: true, text: `\u2605 ${rating.toFixed(1)} (${reviewCount})` };
+  return { hasReviews: true, text: `${rating.toFixed(1)} (${reviewCount})` };
 }
 
 export function getStarRatingDisplay(bar: Pick<Bar, 'rating' | 'reviews'>, emptyText = 'New place') {
@@ -75,11 +83,7 @@ export function hasCjkText(value: string) {
 }
 
 export function getMapDiscoveredAbout(address: string | null | undefined) {
-  if (address && hasCjkText(address)) {
-    return '\u8fd9\u662f\u4ece\u5730\u56fe\u53d1\u73b0\u7684\u9644\u8fd1\u9152\u5427\u3002\u5199\u4e0b\u4f60\u7684\u4f53\u9a8c\uff0c\u5e2e\u52a9\u5176\u4ed6\u4eba\u4e86\u89e3\u8fd9\u91cc\u7684\u6c1b\u56f4\u3002';
-  }
-
-  return 'A nearby bar discovered from the map. Leave a review to help others understand the vibe.';
+  return 'A nightlife venue discovered from local map data. Community reviews help shape the experience.';
 }
 
 function isThinAboutText(value: string | null | undefined) {
@@ -90,6 +94,7 @@ function isThinAboutText(value: string | null | undefined) {
     text === 'details coming soon.' ||
     text === 'a newly added vesper spot. more details are coming soon.' ||
     text === 'a nearby bar discovered from the map. leave a review to help others understand the vibe.' ||
+    text === 'a nightlife venue discovered from local map data. community reviews help shape the experience.' ||
     text.startsWith('located at ')
   );
 }
@@ -110,21 +115,9 @@ export function getDetailAboutText(bar: Bar, reviewCount = 0) {
     return existingAbout;
   }
 
-  const tag = getPrimaryBarTag(bar).toLowerCase();
-  const hasReviews = reviewCount > 0;
-  const isCjk = hasCjkText([bar.name, bar.type, bar.neighborhood, ...bar.tags].join(' '));
-
-  if (isCjk) {
-    if (hasReviews) {
-      return `一个附近的${tag}地点，已经有人留下了体验记录。你可以通过评论和照片继续补充这里的氛围。`;
-    }
-
-    return `一个附近的${tag}地点。你可以通过评论和照片补充这里的氛围，让后来的人更容易判断是否适合今晚。`;
+  if (bar.isImported) {
+    return 'A nightlife venue discovered from local map data. Community reviews help shape the experience.';
   }
 
-  if (hasReviews) {
-    return `A nearby ${tag} shaped by early community notes. Add your own review or photos to make the vibe clearer for the next night out.`;
-  }
-
-  return `A nearby ${tag} spot with details still coming into focus. Reviews and photos from visits will help future guests understand the mood.`;
+  return 'A local nightlife spot curated by the Vesper community.';
 }

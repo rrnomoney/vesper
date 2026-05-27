@@ -12,6 +12,7 @@ import com.vesper.backend.service.PoiService;
 import com.vesper.backend.vo.BarVO;
 import com.vesper.backend.vo.PoiVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,9 +31,11 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AmapPoiServiceImpl implements PoiService {
 
     private static final String AMAP_AROUND_URL = "https://restapi.amap.com/v3/place/around";
+    private static final String AMAP_DETAIL_URL = "https://restapi.amap.com/v3/place/detail";
     private static final String BAR_KEYWORDS = "\u9152\u5427|\u6e05\u5427|cocktail|pub|livehouse|\u7cbe\u917f|\u5a01\u58eb\u5fcc";
     private static final List<String> CATEGORY_ALLOWLIST = List.of(
             "\u9152\u5427",
@@ -110,11 +113,19 @@ public class AmapPoiServiceImpl implements PoiService {
     @Override
     @Transactional
     public BarVO importPoi(ImportPoiRequest request) {
+        log.info("importPoi called");
         String externalId = request.getExternalId().trim();
         Bar existingBar = barMapper.selectOne(new LambdaQueryWrapper<Bar>()
                 .eq(Bar::getExternalId, externalId)
                 .last("LIMIT 1"));
         if (existingBar != null) {
+            if (!hasMissingObjectiveEnrichment(existingBar)) {
+                log.info("existing bar already enriched, skip AMap detail");
+                return BarVO.from(existingBar);
+            }
+
+            log.info("existing bar missing enrichment");
+            enrichBarWithAmapDetail(existingBar, externalId, true);
             return BarVO.from(existingBar);
         }
 
@@ -127,6 +138,7 @@ public class AmapPoiServiceImpl implements PoiService {
         bar.setCategory(trimToNull(request.getCategory()));
         bar.setCity(null);
         bar.setCoverImage(trimToNull(request.getCoverImage()));
+        enrichBarWithAmapDetail(bar, externalId, false);
         bar.setRating(BigDecimal.ZERO);
         bar.setPriceLevel(2);
         barMapper.insert(bar);
@@ -159,6 +171,198 @@ public class AmapPoiServiceImpl implements PoiService {
         } catch (NumberFormatException exception) {
             return Optional.empty();
         }
+    }
+
+    private void enrichBarWithAmapDetail(Bar bar, String externalId, boolean persistExistingBar) {
+        log.info("fetching AMap detail");
+        Optional<AmapPoiDetail> detail = fetchPoiDetail(externalId);
+        if (detail.isEmpty() || !detail.get().hasObjectiveFields()) {
+            log.info("AMap detail no objective fields");
+            return;
+        }
+
+        applyPoiDetail(bar, detail.get());
+        if (persistExistingBar) {
+            barMapper.updateById(bar);
+        }
+    }
+
+    private Optional<AmapPoiDetail> fetchPoiDetail(String externalId) {
+        if (!StringUtils.hasText(amapApiKey)) {
+            return Optional.empty();
+        }
+
+        try {
+            URI uri = UriComponentsBuilder.fromUriString(AMAP_DETAIL_URL)
+                    .queryParam("key", amapApiKey)
+                    .queryParam("id", externalId)
+                    .queryParam("extensions", "all")
+                    .build()
+                    .encode()
+                    .toUri();
+
+            JsonNode response = restTemplate.getForObject(uri, JsonNode.class);
+            logAmapDetailSummary(response);
+            if (response == null || !"1".equals(response.path("status").asText())) {
+                log.info("AMap detail failed, status={}, info={}, infocode={}",
+                        response == null ? null : response.path("status").asText(null),
+                        response == null ? null : response.path("info").asText(null),
+                        response == null ? null : response.path("infocode").asText(null));
+                return Optional.empty();
+            }
+
+            return firstPoiDetailNode(response).map(this::parsePoiDetail);
+        } catch (RuntimeException exception) {
+            log.info("AMap detail failed, reason={}", exception.getClass().getSimpleName());
+            return Optional.empty();
+        }
+    }
+
+    private Optional<JsonNode> firstPoiDetailNode(JsonNode response) {
+        JsonNode pois = response.path("pois");
+        if (pois.isArray() && !pois.isEmpty()) {
+            return Optional.of(pois.get(0));
+        }
+
+        JsonNode poi = response.path("poi");
+        if (poi.isObject()) {
+            return Optional.of(poi);
+        }
+
+        JsonNode resultPoi = response.path("result").path("poi");
+        if (resultPoi.isObject()) {
+            return Optional.of(resultPoi);
+        }
+
+        return Optional.empty();
+    }
+
+    private AmapPoiDetail parsePoiDetail(JsonNode poiNode) {
+        JsonNode business = poiNode.path("business");
+        JsonNode bizExt = poiNode.path("biz_ext");
+
+        String phone = firstText(
+                poiNode.path("tel"),
+                business.path("tel"));
+        String businessHours = firstText(
+                poiNode.path("opentime_week"),
+                poiNode.path("opentime"),
+                bizExt.path("open_time"),
+                business.path("open_time"),
+                business.path("opentime_week"),
+                business.path("opentime"),
+                poiNode.path("opening_hours"),
+                poiNode.path("open_time"),
+                poiNode.path("business_hours"),
+                poiNode.path("hours"),
+                poiNode.path("opentime_today"),
+                bizExt.path("opening_hours"),
+                bizExt.path("business_hours"),
+                bizExt.path("hours"),
+                business.path("opening_hours"),
+                business.path("business_hours"),
+                business.path("hours"),
+                business.path("opentime_today"));
+        String formattedAddress = firstText(poiNode.path("address"));
+        String poiType = firstText(poiNode.path("type"));
+        String website = firstText(poiNode.path("website"));
+        List<String> photoUrls = parsePhotoUrls(poiNode.path("photos"));
+
+        return new AmapPoiDetail(phone, businessHours, formattedAddress, poiType, website, photoUrls);
+    }
+
+    private void applyPoiDetail(Bar bar, AmapPoiDetail detail) {
+        if (!StringUtils.hasText(bar.getPhone()) && StringUtils.hasText(detail.phone())) {
+            bar.setPhone(detail.phone());
+        }
+        if (!StringUtils.hasText(bar.getBusinessHours()) && StringUtils.hasText(detail.businessHours())) {
+            bar.setBusinessHours(detail.businessHours());
+        }
+        if (!StringUtils.hasText(bar.getFormattedAddress()) && StringUtils.hasText(detail.formattedAddress())) {
+            bar.setFormattedAddress(detail.formattedAddress());
+        }
+        if (!StringUtils.hasText(bar.getPoiType()) && StringUtils.hasText(detail.poiType())) {
+            bar.setPoiType(detail.poiType());
+        }
+        if (!StringUtils.hasText(bar.getWebsite()) && StringUtils.hasText(detail.website())) {
+            bar.setWebsite(detail.website());
+        }
+        if (!StringUtils.hasText(bar.getAmapPhotoUrls()) && !detail.photoUrls().isEmpty()) {
+            bar.setAmapPhotoUrls(String.join("\n", detail.photoUrls()));
+        }
+    }
+
+    private boolean hasMissingObjectiveEnrichment(Bar bar) {
+        return !StringUtils.hasText(bar.getPhone())
+                || !StringUtils.hasText(bar.getBusinessHours())
+                || !StringUtils.hasText(bar.getFormattedAddress())
+                || !StringUtils.hasText(bar.getPoiType())
+                || !StringUtils.hasText(bar.getWebsite())
+                || !StringUtils.hasText(bar.getAmapPhotoUrls());
+    }
+
+    private String firstText(JsonNode... nodes) {
+        for (JsonNode node : nodes) {
+            String text = textOrNull(node);
+            if (StringUtils.hasText(text)) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    private List<String> parsePhotoUrls(JsonNode photosNode) {
+        if (!photosNode.isArray()) {
+            return List.of();
+        }
+
+        List<String> urls = new ArrayList<>();
+        for (JsonNode photoNode : photosNode) {
+            String url = firstText(photoNode.path("url"), photoNode.path("image_url"));
+            if (StringUtils.hasText(url) && !urls.contains(url)) {
+                urls.add(url);
+            }
+        }
+        return urls;
+    }
+
+    private void logAmapDetailSummary(JsonNode response) {
+        if (response == null) {
+            log.info("AMap detail summary status=null");
+            return;
+        }
+
+        Optional<JsonNode> firstPoi = firstPoiDetailNode(response);
+        JsonNode poi = firstPoi.orElse(null);
+        JsonNode bizExt = poi == null ? null : poi.path("biz_ext");
+        JsonNode business = poi == null ? null : poi.path("business");
+        JsonNode photos = poi == null ? null : poi.path("photos");
+
+        log.info(
+                "AMap detail summary status={}, info={}, infocode={}, count={}, poiKeys={}, address={}, type={}, tel={}, website={}, opentime={}, opentime_week={}, business_area={}, bizExtKeys={}, bizExtOpenTime={}, businessKeys={}, businessOpenTime={}, photosSize={}",
+                response.path("status").asText(null),
+                response.path("info").asText(null),
+                response.path("infocode").asText(null),
+                response.path("count").asText(null),
+                poi == null ? List.of() : fieldNames(poi),
+                poi == null ? null : textOrNull(poi.path("address")),
+                poi == null ? null : textOrNull(poi.path("type")),
+                poi == null ? null : textOrNull(poi.path("tel")),
+                poi == null ? null : textOrNull(poi.path("website")),
+                poi == null ? null : textOrNull(poi.path("opentime")),
+                poi == null ? null : textOrNull(poi.path("opentime_week")),
+                poi == null ? null : textOrNull(poi.path("business_area")),
+                bizExt == null || !bizExt.isObject() ? List.of() : fieldNames(bizExt),
+                bizExt == null ? null : textOrNull(bizExt.path("open_time")),
+                business == null || !business.isObject() ? List.of() : fieldNames(business),
+                business == null ? null : textOrNull(business.path("open_time")),
+                photos != null && photos.isArray() ? photos.size() : 0);
+    }
+
+    private List<String> fieldNames(JsonNode node) {
+        List<String> names = new ArrayList<>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
     }
 
     private boolean isRelevantBar(PoiVO poi) {
@@ -225,5 +429,23 @@ public class AmapPoiServiceImpl implements PoiService {
             return null;
         }
         return value.trim();
+    }
+
+    private record AmapPoiDetail(
+            String phone,
+            String businessHours,
+            String formattedAddress,
+            String poiType,
+            String website,
+            List<String> photoUrls
+    ) {
+        private boolean hasObjectiveFields() {
+            return StringUtils.hasText(phone)
+                    || StringUtils.hasText(businessHours)
+                    || StringUtils.hasText(formattedAddress)
+                    || StringUtils.hasText(poiType)
+                    || StringUtils.hasText(website)
+                    || !photoUrls.isEmpty();
+        }
     }
 }

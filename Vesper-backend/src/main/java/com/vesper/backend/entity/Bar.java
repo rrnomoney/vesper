@@ -29,6 +29,18 @@ public class Bar {
 
     private String category;
 
+    private String phone;
+
+    private String businessHours;
+
+    private String formattedAddress;
+
+    private String poiType;
+
+    private String website;
+
+    private String amapPhotoUrls;
+
     private BigDecimal rating;
 
     private Integer priceLevel;

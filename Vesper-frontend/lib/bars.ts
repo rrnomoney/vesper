@@ -1,5 +1,5 @@
 import { apiGet } from './api';
-import { getMapDiscoveredAbout } from './barDisplay';
+import { getMapDiscoveredAbout, getPrimaryBarImage } from './barDisplay';
 import type { Bar } from '../data/bars';
 
 export type BarVO = {
@@ -11,6 +11,12 @@ export type BarVO = {
   latitude: number | string | null;
   longitude: number | string | null;
   category: string | null;
+  phone: string | null;
+  businessHours: string | null;
+  formattedAddress: string | null;
+  poiType: string | null;
+  website: string | null;
+  amapPhotoUrls: string[] | null;
   rating: number | string | null;
   averageRating: number | string | null;
   reviewCount: number | null;
@@ -24,9 +30,6 @@ export type GetBarsParams = {
   keyword?: string;
   city?: string;
 };
-
-const fallbackCoverImage =
-  'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
 
 function formatPrice(priceLevel: number | null, externalId: string | null) {
   if (externalId || !priceLevel || priceLevel < 1) {
@@ -48,12 +51,14 @@ function toNumber(value: number | string | null, fallback = 0) {
 export function mapBarVOToBar(bar: BarVO): Bar {
   const reviewCount = Number(bar.reviewCount);
   const rating = bar.averageRating ?? bar.rating;
+  const address = bar.formattedAddress || bar.address || bar.city || 'Demo data';
+  const amapPhotoUrls = Array.isArray(bar.amapPhotoUrls) ? bar.amapPhotoUrls.filter(Boolean) : [];
 
   return {
     id: String(bar.id),
     name: bar.name,
-    type: bar.category || 'Bar',
-    neighborhood: bar.address || bar.city || 'Demo data',
+    type: bar.poiType || bar.category || 'Bar',
+    neighborhood: address,
     distance: bar.city || 'Available bars',
     rating: toNumber(rating),
     reviews: Number.isFinite(reviewCount) ? reviewCount : 0,
@@ -61,11 +66,17 @@ export function mapBarVOToBar(bar: BarVO): Bar {
     latitude: toNumber(bar.latitude),
     longitude: toNumber(bar.longitude),
     isSaved: false,
-    image: bar.coverImage || fallbackCoverImage,
+    image: getPrimaryBarImage({ amapPhotoUrls, coverImage: bar.coverImage }),
     tags: bar.category ? [bar.category] : [],
-    about: bar.externalId ? getMapDiscoveredAbout(bar.address) : bar.address ? `Located at ${bar.address}.` : 'Details coming soon.',
+    about: bar.externalId ? getMapDiscoveredAbout(address) : bar.address ? `Located at ${bar.address}.` : 'Details coming soon.',
     reviewHighlights: [],
     isImported: Boolean(bar.externalId),
+    phone: bar.phone,
+    businessHours: bar.businessHours,
+    formattedAddress: bar.formattedAddress,
+    poiType: bar.poiType,
+    website: bar.website,
+    amapPhotoUrls,
   };
 }
 

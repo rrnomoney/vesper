@@ -2,12 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import MapView, { Marker, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { Bar } from '../data/bars';
+import { homeCategories, type Bar } from '../data/bars';
 import { getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../lib/barDisplay';
+import { filterBars } from '../lib/barFilters';
 import { pushBarDetail } from '../lib/navigation';
 import { refreshNearby, useNearbyStore, type NearbyBar } from '../lib/nearbyCache';
 import { importPoi } from '../lib/pois';
@@ -70,18 +71,29 @@ export default function MapScreen() {
   const [mapRegion, setMapRegion] = useState<Region | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [importingPoiId, setImportingPoiId] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [activeCategory, setActiveCategory] = useState(homeCategories[0]);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filteredBars = useMemo(() => filterBars(bars, searchText, activeCategory), [activeCategory, bars, searchText]);
+  const hasActiveFilter = searchText.trim().length > 0 || activeCategory !== homeCategories[0];
 
   const validBars = useMemo<ValidMapBar[]>(
     () =>
-      bars
+      filteredBars
         .map((bar) => ({
           ...bar,
           latitude: Number(bar.latitude),
           longitude: Number(bar.longitude),
         }))
         .filter((bar) => Number.isFinite(bar.latitude) && Number.isFinite(bar.longitude)),
-    [bars],
+    [filteredBars],
   );
+
+  useEffect(() => {
+    if (selectedBar && !filteredBars.some((bar) => bar.id === selectedBar.id)) {
+      setSelectedBar(null);
+    }
+  }, [filteredBars, selectedBar]);
 
   useEffect(() => {
     if (nearbyRegion) {
@@ -160,6 +172,16 @@ export default function MapScreen() {
     return 'normal';
   };
 
+  const closeFilterSheet = () => {
+    setIsFilterOpen(false);
+    Keyboard.dismiss();
+  };
+
+  const handleMapBlankPress = () => {
+    setSelectedBar(null);
+    closeFilterSheet();
+  };
+
   const moveToUserLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
 
@@ -232,7 +254,7 @@ export default function MapScreen() {
           style={StyleSheet.absoluteFillObject}
           initialRegion={mapRegion}
           moveOnMarkerPress={false}
-          onPress={() => setSelectedBar(null)}
+          onPress={handleMapBlankPress}
           pitchEnabled={false}
           rotateEnabled={false}
           showsCompass={false}
@@ -277,17 +299,65 @@ export default function MapScreen() {
         </View>
       )}
 
+      {isFilterOpen ? <Pressable style={styles.dismissOverlay} onPress={handleMapBlankPress} /> : null}
+
       <SafeAreaView pointerEvents="box-none" style={styles.overlay} edges={['top']}>
         <View style={styles.topControls}>
           <View style={styles.statusPill}>
             <Text style={styles.statusTitle}>Nearby bars</Text>
-            <Text style={styles.statusSubtitle}>{isLoading ? 'Loading' : `${validBars.length} found`}</Text>
+            <Text style={styles.statusSubtitle}>{isLoading ? 'Loading' : `${validBars.length}/${bars.length} found`}</Text>
           </View>
 
-          <Pressable style={styles.locationButton} onPress={moveToUserLocation}>
-            <Ionicons name="locate" size={18} color="#111827" />
-          </Pressable>
+          <View style={styles.rightActions}>
+            <Pressable
+              style={[styles.iconButton, isFilterOpen && styles.iconButtonActive]}
+              onPress={() => setIsFilterOpen((current) => !current)}
+            >
+              <Ionicons name="funnel-outline" size={18} color={hasActiveFilter || isFilterOpen ? '#7c3aed' : '#111827'} />
+              {hasActiveFilter ? <View style={styles.filterDot} /> : null}
+            </Pressable>
+
+            <Pressable style={styles.iconButton} onPress={moveToUserLocation}>
+              <Ionicons name="locate" size={18} color="#111827" />
+            </Pressable>
+          </View>
         </View>
+
+        {isFilterOpen ? (
+          <View style={styles.filterSheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Filter places</Text>
+              <Pressable style={styles.sheetCloseButton} onPress={() => setIsFilterOpen(false)}>
+                <Ionicons name="close" size={17} color="#52525b" />
+              </Pressable>
+            </View>
+
+            <View style={styles.searchBox}>
+              <Ionicons name="search-outline" size={18} color="#a1a1aa" />
+              <TextInput
+                placeholder="Search bars or POIs"
+                placeholderTextColor="#a1a1aa"
+                value={searchText}
+                onChangeText={setSearchText}
+                style={styles.searchInput}
+              />
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipContent}>
+              {homeCategories.map((category) => (
+                <Pressable
+                  key={category}
+                  style={[styles.chip, category === activeCategory && styles.chipActive]}
+                  onPress={() => setActiveCategory(category)}
+                >
+                  <Text style={[styles.chipText, category === activeCategory && styles.chipTextActive]}>{category}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <Text style={styles.sheetMeta}>{validBars.length}/{bars.length} places visible</Text>
+          </View>
+        ) : null}
 
         {statusMessage ? (
           <View style={styles.messageBadge}>
@@ -370,6 +440,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     top: 0,
+    zIndex: 3,
+  },
+  dismissOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
+    backgroundColor: 'transparent',
   },
   topControls: {
     flexDirection: 'row',
@@ -391,7 +467,8 @@ const styles = StyleSheet.create({
   },
   statusTitle: { color: '#111827', fontSize: 13, fontWeight: '900' },
   statusSubtitle: { marginTop: 1, color: '#71717a', fontSize: 10, fontWeight: '800' },
-  locationButton: {
+  rightActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconButton: {
     ...floatingShadow,
     width: 44,
     height: 44,
@@ -402,6 +479,64 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.72)',
     backgroundColor: 'rgba(255,255,255,0.9)',
   },
+  iconButtonActive: { borderColor: '#ddd6fe', backgroundColor: 'rgba(245,243,255,0.94)' },
+  filterDot: {
+    position: 'absolute',
+    right: 9,
+    top: 9,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#7c3aed',
+  },
+  filterSheet: {
+    ...floatingShadow,
+    alignSelf: 'stretch',
+    marginTop: 12,
+    marginHorizontal: 18,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.72)',
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    padding: 12,
+  },
+  sheetHeader: {
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sheetTitle: { color: '#111827', fontSize: 15, fontWeight: '900' },
+  sheetCloseButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: '#f4f4f5',
+  },
+  searchBox: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 21,
+    backgroundColor: 'rgba(244,244,245,0.94)',
+    paddingHorizontal: 13,
+  },
+  searchInput: { marginLeft: 8, flex: 1, color: '#18181b', fontSize: 14, fontWeight: '700' },
+  chipContent: { flexDirection: 'row', gap: 8, paddingTop: 10, paddingRight: 6 },
+  chip: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#f4f4f5',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  chipActive: { borderColor: '#ddd6fe', backgroundColor: '#ede9fe' },
+  chipText: { color: '#52525b', fontSize: 12, fontWeight: '800' },
+  chipTextActive: { color: '#7c3aed' },
+  sheetMeta: { marginTop: 10, color: '#71717a', fontSize: 11, fontWeight: '800' },
   userMarker: {
     width: 34,
     height: 34,
@@ -455,6 +590,7 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     bottom: 64,
+    zIndex: 2,
     minHeight: 156,
     flexDirection: 'row',
     borderRadius: 24,

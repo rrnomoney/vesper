@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { featuredBars, type Bar } from '../data/bars';
+import { featuredBars, homeCategories, type Bar } from '../data/bars';
 import { getPrimaryBarTag, getRatingSummary } from '../lib/barDisplay';
+import { filterBars } from '../lib/barFilters';
 import { pushBarDetail } from '../lib/navigation';
 
 const pins: ViewStyle[] = [
@@ -25,10 +26,31 @@ function VesperMarker() {
 
 export default function VesperMap() {
   const [selectedBar, setSelectedBar] = useState<Bar | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [activeCategory, setActiveCategory] = useState(homeCategories[0]);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filteredBars = useMemo(() => filterBars(webBars, searchText, activeCategory), [activeCategory, searchText]);
+  const hasActiveFilter = searchText.trim().length > 0 || activeCategory !== homeCategories[0];
 
   const openBarDetails = (bar: Bar) => {
     pushBarDetail(bar.id);
   };
+
+  const closeFilterSheet = () => {
+    setIsFilterOpen(false);
+    Keyboard.dismiss();
+  };
+
+  const handleMapBlankPress = () => {
+    setSelectedBar(null);
+    closeFilterSheet();
+  };
+
+  useEffect(() => {
+    if (selectedBar && !filteredBars.some((bar) => bar.id === selectedBar.id)) {
+      setSelectedBar(null);
+    }
+  }, [filteredBars, selectedBar]);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -38,24 +60,74 @@ export default function VesperMap() {
             <Text style={styles.title}>Night map</Text>
             <Text style={styles.subtitle}>Explore nearby Vesper spots</Text>
           </View>
-          <View style={styles.locationButton}>
-            <Ionicons name="locate" size={18} color="#8b5cf6" />
+          <View style={styles.headerActions}>
+            <Pressable
+              style={[styles.iconButton, isFilterOpen && styles.iconButtonActive]}
+              onPress={() => setIsFilterOpen((current) => !current)}
+            >
+              <Ionicons name="funnel-outline" size={18} color={hasActiveFilter || isFilterOpen ? '#7c3aed' : '#8b5cf6'} />
+              {hasActiveFilter ? <View style={styles.filterDot} /> : null}
+            </Pressable>
+            <View style={styles.iconButton}>
+              <Ionicons name="locate" size={18} color="#8b5cf6" />
+            </View>
           </View>
         </View>
 
-        <Text style={styles.mapHint}>Nearby bars</Text>
+        {isFilterOpen ? (
+          <View style={styles.filterSheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Filter places</Text>
+              <Pressable style={styles.sheetCloseButton} onPress={() => setIsFilterOpen(false)}>
+                <Ionicons name="close" size={17} color="#52525b" />
+              </Pressable>
+            </View>
 
-        <View style={styles.mapCard}>
+            <View style={styles.searchBox}>
+              <Ionicons name="search-outline" size={18} color="#a1a1aa" />
+              <TextInput
+                placeholder="Search bars or POIs"
+                placeholderTextColor="#a1a1aa"
+                value={searchText}
+                onChangeText={setSearchText}
+                style={styles.searchInput}
+              />
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipContent}>
+              {homeCategories.map((category) => (
+                <Pressable
+                  key={category}
+                  style={[styles.chip, category === activeCategory && styles.chipActive]}
+                  onPress={() => setActiveCategory(category)}
+                >
+                  <Text style={[styles.chipText, category === activeCategory && styles.chipTextActive]}>{category}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        <Text style={styles.mapHint}>{filteredBars.length}/{webBars.length} nearby bars</Text>
+
+        <Pressable style={styles.mapCard} onPress={handleMapBlankPress}>
           <View style={styles.grid}>
+            {isFilterOpen ? <Pressable style={styles.dismissOverlay} onPress={handleMapBlankPress} /> : null}
             {pins.map((pin, index) => {
-              const bar = webBars[index];
+              const bar = filteredBars[index];
+
+              if (!bar) {
+                return null;
+              }
 
               return (
                 <Pressable
-                  key={bar?.id ?? index}
+                  key={bar.id}
                   style={[styles.marker, pin, selectedBar?.id === bar?.id && styles.markerSelected]}
-                  onPress={() => {
-                    if (!bar || selectedBar?.id === bar.id) {
+                  onPress={(event) => {
+                    event.stopPropagation();
+
+                    if (selectedBar?.id === bar.id) {
                       return;
                     }
 
@@ -69,7 +141,7 @@ export default function VesperMap() {
             <View style={styles.river} />
             <Text style={styles.mapLabel}>Map preview</Text>
           </View>
-        </View>
+        </Pressable>
 
         {selectedBar ? (
           <View style={styles.previewCard}>
@@ -105,7 +177,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   title: { color: '#111111', fontSize: 32, fontWeight: '900' },
   subtitle: { marginTop: 7, color: '#71717a', fontSize: 14, fontWeight: '600' },
-  locationButton: {
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconButton: {
     width: 44,
     height: 44,
     alignItems: 'center',
@@ -113,6 +186,64 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: '#f5f3ff',
   },
+  iconButtonActive: { backgroundColor: '#ede9fe' },
+  filterDot: {
+    position: 'absolute',
+    right: 9,
+    top: 9,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#7c3aed',
+  },
+  filterSheet: {
+    marginBottom: 16,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    padding: 12,
+    shadowColor: '#8b5cf6',
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+  },
+  sheetHeader: {
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sheetTitle: { color: '#111827', fontSize: 15, fontWeight: '900' },
+  sheetCloseButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: '#f4f4f5',
+  },
+  searchBox: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 24,
+    backgroundColor: '#f4f4f5',
+    paddingHorizontal: 15,
+  },
+  searchInput: { marginLeft: 9, flex: 1, color: '#18181b', fontSize: 14, fontWeight: '700' },
+  chipContent: { flexDirection: 'row', gap: 10, paddingTop: 10, paddingRight: 6 },
+  chip: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+  },
+  chipActive: { borderColor: '#ddd6fe', backgroundColor: '#ede9fe' },
+  chipText: { color: '#52525b', fontSize: 13, fontWeight: '700' },
+  chipTextActive: { color: '#7c3aed' },
   mapHint: { marginBottom: 12, color: '#a1a1aa', fontSize: 13, fontWeight: '700' },
   mapCard: {
     height: 360,
@@ -127,6 +258,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 18 },
   },
   grid: { flex: 1, position: 'relative', backgroundColor: '#f5f3ff' },
+  dismissOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    backgroundColor: 'transparent',
+  },
   river: {
     position: 'absolute',
     left: -40,

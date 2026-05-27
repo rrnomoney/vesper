@@ -136,7 +136,7 @@ export const featuredBars: Bar[] = [
   },
 ];
 
-export const homeCategories = ['Nearby', 'Cocktail', 'Rooftop', 'Speakeasy', 'Live Music', 'Club'];
+export const homeCategories = ['All', '\u9152\u5427', '\u6e05\u5427', 'Livehouse', '\u7cbe\u917f', 'Whisky'];
 
 export function getBarById(id: string) {
   return featuredBars.find((bar) => bar.id === id);

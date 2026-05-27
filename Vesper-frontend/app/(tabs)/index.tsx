@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { homeCategories } from '../../data/bars';
 import { getBarTags, getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../../lib/barDisplay';
+import { filterBars } from '../../lib/barFilters';
 import { getAuthToken } from '../../lib/authSession';
 import { pushBarDetail } from '../../lib/navigation';
 import { refreshNearby, useNearbyStore, type NearbyBar } from '../../lib/nearbyCache';
@@ -79,6 +80,8 @@ export default function HomeScreen() {
 
   const isInitialNearbyLoading = bars.length === 0 && !nearbyError && (isNearbyLoading || nearbyLastFetchedAt === 0);
   const isRefreshingNearby = isNearbyLoading && bars.length > 0;
+  const filteredBars = useMemo(() => filterBars(bars, searchText, activeCategory), [activeCategory, bars, searchText]);
+  const hasActiveFilter = searchText.trim().length > 0 || activeCategory !== homeCategories[0];
 
   useEffect(() => {
     setBars(nearbyBars);
@@ -166,14 +169,12 @@ export default function HomeScreen() {
 
       return undefined;
     }, [
-      activeCategory,
       authUserId,
       clearSavedBars,
       clearVisitedBars,
       isAuthInitializing,
       loadFavorites,
       loadVisited,
-      searchText,
       nearbyLastFetchedAt,
     ]),
   );
@@ -211,10 +212,7 @@ export default function HomeScreen() {
             placeholder="Search bars, vibes, or areas"
             placeholderTextColor="#a1a1aa"
             value={searchText}
-            onChangeText={(value) => {
-              setSearchText(value);
-              setActiveCategory('Nearby');
-            }}
+            onChangeText={setSearchText}
             style={styles.searchInput}
           />
         </View>
@@ -229,10 +227,7 @@ export default function HomeScreen() {
             <Pressable
               key={category}
               style={[styles.chip, category === activeCategory && styles.chipActive]}
-              onPress={() => {
-                setActiveCategory(category);
-                setSearchText('');
-              }}
+              onPress={() => setActiveCategory(category)}
             >
               <Text style={[styles.chipText, category === activeCategory && styles.chipTextActive]}>{category}</Text>
             </Pressable>
@@ -243,7 +238,7 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.sectionTitle}>Nearby Bars</Text>
           </View>
-          <Text style={styles.seeAll}>See all</Text>
+          <Text style={styles.seeAll}>{filteredBars.length}/{bars.length}</Text>
         </View>
 
         <View style={styles.list}>
@@ -281,8 +276,14 @@ export default function HomeScreen() {
               <Text style={styles.stateTitle}>No bars yet</Text>
               <Text style={styles.stateText}>New places will appear here once they are available.</Text>
             </View>
+          ) : filteredBars.length === 0 ? (
+            <View style={styles.stateCard}>
+              <Ionicons name="search-outline" size={22} color="#8b5cf6" />
+              <Text style={styles.stateTitle}>No matches</Text>
+              <Text style={styles.stateText}>{hasActiveFilter ? 'Try another keyword or category.' : 'New places will appear here once they are available.'}</Text>
+            </View>
           ) : (
-            bars.map((bar) => {
+            filteredBars.map((bar) => {
             const localBarId = getLocalBarId(bar);
             const isVisited = !!localBarId && visitedBarIds.some((id) => Number(id) === Number(localBarId));
             const isSaved = !!localBarId && savedBarIds.some((id) => Number(id) === Number(localBarId));

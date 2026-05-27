@@ -41,9 +41,18 @@ export default function VesperMap() {
     Keyboard.dismiss();
   };
 
-  const handleMapBlankPress = () => {
+  const closePreview = () => {
     setSelectedBar(null);
-    closeFilterSheet();
+    Keyboard.dismiss();
+  };
+
+  const handleMapBlankPress = () => {
+    if (isFilterOpen) {
+      closeFilterSheet();
+      return;
+    }
+
+    closePreview();
   };
 
   useEffect(() => {
@@ -112,7 +121,9 @@ export default function VesperMap() {
 
         <Pressable style={styles.mapCard} onPress={handleMapBlankPress}>
           <View style={styles.grid}>
-            {isFilterOpen ? <Pressable style={styles.dismissOverlay} onPress={handleMapBlankPress} /> : null}
+            {isFilterOpen || selectedBar ? (
+              <Pressable style={[styles.dismissOverlay, isFilterOpen && styles.filterDismissOverlay]} onPress={handleMapBlankPress} />
+            ) : null}
             {pins.map((pin, index) => {
               const bar = filteredBars[index];
 
@@ -263,6 +274,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
     backgroundColor: 'transparent',
   },
+  filterDismissOverlay: { zIndex: 30 },
   river: {
     position: 'absolute',
     left: -40,
@@ -276,6 +288,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 38,
     height: 38,
+    zIndex: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

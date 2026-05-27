@@ -2,7 +2,17 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, Image, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Keyboard,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import MapView, { Marker, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -53,6 +63,7 @@ function getLocalBarId(bar: MapBar) {
 
 export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
+  const markerPressRef = useRef(false);
   const authUserId = useAuthStore((state) => state.user?.id ?? null);
   const isAuthInitializing = useAuthStore((state) => state.isInitializing);
   const visitedBars = useVisitedStore((state) => state.visitedBars);
@@ -177,9 +188,29 @@ export default function MapScreen() {
     Keyboard.dismiss();
   };
 
-  const handleMapBlankPress = () => {
+  const closePreview = () => {
     setSelectedBar(null);
-    closeFilterSheet();
+    Keyboard.dismiss();
+  };
+
+  const markMarkerPress = () => {
+    markerPressRef.current = true;
+    requestAnimationFrame(() => {
+      markerPressRef.current = false;
+    });
+  };
+
+  const handleMapBlankPress = () => {
+    if (markerPressRef.current) {
+      return;
+    }
+
+    if (isFilterOpen) {
+      closeFilterSheet();
+      return;
+    }
+
+    closePreview();
   };
 
   const moveToUserLocation = async () => {
@@ -269,6 +300,7 @@ export default function MapScreen() {
               tracksViewChanges
               anchor={{ x: 0.5, y: 0.5 }}
               onPress={(event) => {
+                markMarkerPress();
                 event.stopPropagation?.();
 
                 if (selectedBar?.id === bar.id) {

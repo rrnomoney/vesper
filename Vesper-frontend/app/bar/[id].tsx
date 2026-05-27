@@ -9,6 +9,8 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -22,9 +24,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RatingPicker } from '../../components/RatingPicker';
 import type { Bar } from '../../data/bars';
-import { getRatingSummary, hasReliablePrice } from '../../lib/barDisplay';
-import { getBarById } from '../../lib/bars';
+import { getDetailAboutText, getDetailMetadata, getStarRatingDisplay } from '../../lib/barDisplay';
 import { getAuthToken } from '../../lib/authSession';
+import { getBarById } from '../../lib/bars';
 import { updateNearbyReviewSummary } from '../../lib/nearbyCache';
 import { createReview, getBarReviews, type ReviewVO } from '../../lib/reviews';
 import { resolveAssetUrl, uploadImage, type UploadImageInput } from '../../lib/upload';
@@ -44,57 +46,112 @@ type SelectedReviewImage = UploadImageInput & {
   id: string;
 };
 
-function hasCjkText(value: string) {
-  return /[\u3400-\u9fff]/.test(value);
+type GalleryImage = {
+  id: string;
+  url: string;
+};
+
+function getInitials(value: string | null | undefined) {
+  const words = (value || 'Vesper user').trim().split(/\s+/).filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => word[0]?.toUpperCase()).join('');
+
+  return initials || 'VU';
 }
 
-function cleanCategoryLabel(value: string | null | undefined) {
-  const text = (value || '').toLowerCase();
-
-  if (text.includes('清吧')) {
-    return '清吧';
-  }
-
-  if (text.includes('livehouse')) {
-    return 'Livehouse';
-  }
-
-  if (text.includes('精酿')) {
-    return '精酿';
-  }
-
-  if (text.includes('威士忌') || text.includes('whisky') || text.includes('whiskey')) {
-    return 'Whisky';
-  }
-
-  if (text.includes('酒吧') || text.includes('cocktail') || text.includes('pub')) {
-    return '酒吧';
-  }
-
-  return 'Night spot';
+function getReviewImages(reviews: ReviewVO[]): GalleryImage[] {
+  return reviews.flatMap((review) =>
+    (Array.isArray(review.imageUrls) ? review.imageUrls : []).map((imageUrl, index) => ({
+      id: `${review.id}-${index}-${imageUrl}`,
+      url: imageUrl,
+    }))
+  );
 }
 
-function getDisplayTags(bar: Bar) {
-  const rawTags = [bar.type, ...(Array.isArray(bar.tags) ? bar.tags : [])].filter(Boolean);
-  const labels = rawTags.map(cleanCategoryLabel);
-  return Array.from(new Set(labels.length > 0 ? labels : ['Night spot']));
+function getHeroImages(bar: Bar, reviewImages: GalleryImage[]) {
+  const fallbackImage = 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
+  const urls = [bar.image, ...reviewImages.map((image) => image.url), fallbackImage]
+    .filter(Boolean)
+    .map((url) => resolveAssetUrl(url));
+
+  return Array.from(new Set(urls));
 }
 
-function getAboutText(bar: Bar) {
-  const address = bar.neighborhood?.trim();
-
-  if (address) {
-    return hasCjkText(address)
-      ? '这是从地图发现的附近酒吧。写下你的体验，帮助其他人了解这里的氛围。'
-      : 'A nearby bar discovered from the map. Leave a review to help others understand the vibe.';
+function formatReviewDate(value: string | null) {
+  if (!value) {
+    return 'Recently';
   }
 
-  return bar.about || 'A newly added Vesper spot. More details are coming soon.';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Recently' : date.toLocaleDateString();
+}
+
+function StarRatingRow({ filledStars, text, hasReviews }: { filledStars: number; text: string; hasReviews: boolean }) {
+  const [ratingText, countText] = text.match(/^(.+?)\s(\(.+\))$/)?.slice(1) ?? [text, ''];
+
+  return (
+    <View style={styles.starRatingRow}>
+      {hasReviews ? (
+        <View style={styles.starGroup}>
+          {[0, 1, 2, 3, 4].map((index) => (
+            <Ionicons key={index} name={index < filledStars ? 'star' : 'star-outline'} size={14} color="#f59e0b" />
+          ))}
+        </View>
+      ) : (
+        <Ionicons name="sparkles-outline" size={14} color="#7c3aed" />
+      )}
+      <Text style={[styles.rating, !hasReviews && styles.newPlaceText]}>{ratingText}</Text>
+      {countText ? <Text style={styles.ratingCount}>{countText}</Text> : null}
+    </View>
+  );
+}
+
+function ReviewStars({ rating }: { rating: number }) {
+  const numericRating = Number(rating) || 0;
+  const filledStars = Math.max(1, Math.min(5, Math.round(numericRating)));
+
+  return (
+    <View style={styles.reviewStars}>
+      {[0, 1, 2, 3, 4].map((index) => (
+        <Ionicons key={index} name={index < filledStars ? 'star' : 'star-outline'} size={12} color="#f59e0b" />
+      ))}
+      <Text style={styles.reviewRating}>{numericRating.toFixed(1)}</Text>
+    </View>
+  );
+}
+
+function DetailLoadingSkeleton() {
+  return (
+    <View style={styles.screen}>
+      <View style={styles.skeletonHero}>
+        <SafeAreaView edges={['top']} style={styles.heroControls}>
+          <View style={styles.skeletonCircle} />
+          <View style={styles.skeletonCircle} />
+        </SafeAreaView>
+      </View>
+      <View style={styles.body}>
+        <View style={styles.skeletonTitle} />
+        <View style={styles.skeletonLineWide} />
+        <View style={styles.skeletonMetaRow}>
+          <View style={styles.skeletonPill} />
+          <View style={styles.skeletonPillSmall} />
+        </View>
+        <View style={styles.skeletonSection}>
+          <View style={styles.skeletonHeading} />
+          <View style={styles.skeletonParagraph} />
+          <View style={styles.skeletonParagraphShort} />
+        </View>
+        <View style={styles.skeletonSection}>
+          <View style={styles.skeletonHeading} />
+          <View style={styles.skeletonReviewCard} />
+        </View>
+      </View>
+    </View>
+  );
 }
 
 export default function BarDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
-  const { height: screenHeight } = useWindowDimensions();
+  const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const [bar, setBar] = useState<Bar | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -107,6 +164,7 @@ export default function BarDetailScreen() {
   const [reviewContent, setReviewContent] = useState('');
   const [selectedImages, setSelectedImages] = useState<SelectedReviewImage[]>([]);
   const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
+  const [heroPage, setHeroPage] = useState(0);
   const addMyReview = useReviewStore((state) => state.addMyReview);
   const visitedBarIds = useVisitedStore((state) => state.visitedBarIds);
   const visitedErrorMessage = useVisitedStore((state) => state.errorMessage);
@@ -333,21 +391,26 @@ export default function BarDetailScreen() {
     void toggleSavedBar(bar.id);
   }
 
+  function handleHeroScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const page = Math.round(event.nativeEvent.contentOffset.x / Math.max(screenWidth, 1));
+    setHeroPage(page);
+  }
+
+  function handleAddressPress() {
+    if (!bar || !Number.isFinite(bar.latitude) || !Number.isFinite(bar.longitude)) {
+      return;
+    }
+
+    router.push({
+      pathname: '/place-map',
+      params: {
+        id: bar.id,
+      },
+    });
+  }
+
   if (isLoading) {
-    return (
-      <View style={styles.screen}>
-        <SafeAreaView edges={['top']} style={styles.stateTopBar}>
-          <Pressable style={styles.circleButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={24} color="#18181b" />
-          </Pressable>
-        </SafeAreaView>
-        <View style={styles.centerState}>
-          <ActivityIndicator color="#8b5cf6" />
-          <Text style={styles.stateTitle}>Loading bar</Text>
-          <Text style={styles.stateText}>Opening the details for this place.</Text>
-        </View>
-      </View>
-    );
+    return <DetailLoadingSkeleton />;
   }
 
   if (errorMessage && !isNotFound) {
@@ -359,7 +422,7 @@ export default function BarDetailScreen() {
           </Pressable>
         </SafeAreaView>
         <View style={styles.centerState}>
-          <Ionicons name="warning-outline" size={28} color="#8b5cf6" />
+          <Ionicons name="warning-outline" size={28} color="#7c3aed" />
           <Text style={styles.stateTitle}>Could not load bar</Text>
           <Text style={styles.stateText}>{errorMessage}</Text>
           <Pressable style={styles.retryButton} onPress={loadBar}>
@@ -379,7 +442,7 @@ export default function BarDetailScreen() {
           </Pressable>
         </SafeAreaView>
         <View style={styles.centerState}>
-          <Ionicons name="wine-outline" size={28} color="#8b5cf6" />
+          <Ionicons name="wine-outline" size={28} color="#7c3aed" />
           <Text style={styles.stateTitle}>Bar not found</Text>
           <Text style={styles.stateText}>This place may have been removed or is not available yet.</Text>
         </View>
@@ -387,25 +450,42 @@ export default function BarDetailScreen() {
     );
   }
 
-  const tags = getDisplayTags(bar);
   const title = bar.name || 'Vesper spot';
-  const heroImage =
-    bar.image || 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=900&q=85';
   const address = bar.neighborhood || 'Address pending';
   const detailReviewCount = reviews.length;
   const detailAverageRating =
     detailReviewCount > 0 ? reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / detailReviewCount : bar.rating;
-  const ratingSummary = getRatingSummary({ rating: detailAverageRating, reviews: detailReviewCount || bar.reviews }, 'No reviews yet');
-  const hasRating = ratingSummary.hasReviews;
-  const price = bar.price || 'Price pending';
-  const shouldShowPrice = hasReliablePrice(bar);
-  const about = getAboutText(bar);
+  const ratingDisplay = getStarRatingDisplay({ rating: detailAverageRating, reviews: detailReviewCount || bar.reviews }, 'New place');
+  const hasRating = ratingDisplay.hasReviews;
+  const metadata = getDetailMetadata(bar, hasRating);
+  const about = getDetailAboutText(bar, detailReviewCount || bar.reviews);
+  const galleryImages = getReviewImages(reviews);
+  const heroImages = getHeroImages(bar, galleryImages);
+  const canOpenMap = Number.isFinite(bar.latitude) && Number.isFinite(bar.longitude);
 
   return (
     <View style={styles.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={styles.hero}>
-          <Image source={{ uri: heroImage }} style={styles.heroImage} />
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={handleHeroScroll}
+            scrollEventThrottle={16}
+          >
+            {heroImages.map((imageUrl) => (
+              <Image key={imageUrl} source={{ uri: imageUrl }} style={[styles.heroImage, { width: screenWidth }]} />
+            ))}
+          </ScrollView>
+          <View style={styles.heroShade} />
+          {heroImages.length > 1 ? (
+            <View style={styles.heroDots}>
+              {heroImages.map((imageUrl, index) => (
+                <View key={imageUrl} style={[styles.heroDot, index === heroPage && styles.heroDotActive]} />
+              ))}
+            </View>
+          ) : null}
           <SafeAreaView edges={['top']} style={styles.heroControls}>
             <Pressable style={styles.circleButton} onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={24} color="#18181b" />
@@ -415,7 +495,7 @@ export default function BarDetailScreen() {
               style={[styles.circleButton, isSaving && styles.circleButtonDisabled]}
               onPress={handleBookmarkPress}
             >
-              <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={21} color="#8b5cf6" />
+              <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={21} color="#7c3aed" />
             </Pressable>
           </SafeAreaView>
         </View>
@@ -428,80 +508,96 @@ export default function BarDetailScreen() {
             {isVisited ? (
               <View style={styles.visitedPill}>
                 <Ionicons name="sparkles" size={13} color="#ffffff" />
-                <Text style={styles.visitedText}>Visited / Lit</Text>
+                <Text style={styles.visitedText}>Visited</Text>
               </View>
             ) : null}
           </View>
-          <View style={styles.addressRow}>
-            <Ionicons name="location-outline" size={16} color="#8b5cf6" />
+
+          <Text style={styles.vibeLine} numberOfLines={1}>
+            {metadata.vibeLine}
+          </Text>
+          <Pressable disabled={!canOpenMap} style={styles.addressRow} onPress={handleAddressPress}>
+            <Ionicons name="location-outline" size={16} color="#7c3aed" />
             <Text style={styles.meta} numberOfLines={2} ellipsizeMode="tail">
               {address}
             </Text>
-          </View>
+            {canOpenMap ? <Ionicons name="chevron-forward" size={15} color="#a1a1aa" /> : null}
+          </Pressable>
 
           {savedErrorMessage ? (
             <View style={styles.inlineError}>
-              <Ionicons name="warning-outline" size={16} color="#8b5cf6" />
+              <Ionicons name="warning-outline" size={16} color="#7c3aed" />
               <Text style={styles.inlineErrorText}>{savedErrorMessage}</Text>
             </View>
           ) : null}
 
           {visitedErrorMessage ? (
             <View style={styles.inlineError}>
-              <Ionicons name="warning-outline" size={16} color="#8b5cf6" />
+              <Ionicons name="warning-outline" size={16} color="#7c3aed" />
               <Text style={styles.inlineErrorText}>{visitedErrorMessage}</Text>
             </View>
           ) : null}
 
           <View style={styles.statRow}>
             <View style={[styles.statPill, !hasRating && styles.newPlacePill]}>
-              <Ionicons name={hasRating ? 'star' : 'sparkles-outline'} size={14} color={hasRating ? '#f59e0b' : '#7c3aed'} />
-              <Text style={[styles.rating, !hasRating && styles.newPlaceText]}>{ratingSummary.text}</Text>
+              <StarRatingRow {...ratingDisplay} />
             </View>
-            {shouldShowPrice ? (
-              <View style={styles.statPill}>
-                <Text style={styles.price}>{price}</Text>
-              </View>
-            ) : null}
+            <View style={styles.statPill}>
+              <Text style={styles.price}>{metadata.priceLine}</Text>
+            </View>
           </View>
 
           <View style={styles.tagRow}>
-            {tags.map((tag) => (
+            {metadata.tags.map((tag) => (
               <View key={tag} style={styles.tag}>
                 <Text style={styles.tagText}>{tag}</Text>
               </View>
             ))}
           </View>
 
-          {isVisited ? (
-            <View style={styles.successCard}>
-              <Text style={styles.successText}>Place lit!</Text>
-              <Text style={styles.successSubtext}>This bar is now part of your night archive.</Text>
-            </View>
-          ) : null}
-
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>About</Text>
             <Text style={styles.about}>{about}</Text>
           </View>
 
+          {galleryImages.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Photos</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.galleryContent}
+              >
+                {galleryImages.map((image) => (
+                  <Image key={image.id} source={{ uri: resolveAssetUrl(image.url) }} style={styles.galleryImage} />
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Reviews</Text>
+              <View>
+                <Text style={styles.sectionTitle}>Reviews</Text>
+              </View>
               <Pressable style={styles.writeReviewButton} onPress={handleWriteReviewPress}>
                 <Ionicons name="create-outline" size={16} color="#7c3aed" />
-                <Text style={styles.writeReviewText}>Write review</Text>
+                <Text style={styles.writeReviewText}>Write</Text>
               </Pressable>
             </View>
 
             {isReviewsLoading ? (
-              <View style={styles.reviewStateCard}>
-                <ActivityIndicator color="#8b5cf6" />
-                <Text style={styles.reviewStateText}>Loading reviews</Text>
+              <View style={styles.reviewSkeletonCard}>
+                <View style={styles.skeletonAvatar} />
+                <View style={styles.reviewSkeletonBody}>
+                  <View style={styles.skeletonLineMedium} />
+                  <View style={styles.skeletonLineWide} />
+                  <View style={styles.skeletonParagraphShort} />
+                </View>
               </View>
             ) : reviewsErrorMessage ? (
               <View style={styles.reviewStateCard}>
-                <Ionicons name="warning-outline" size={22} color="#8b5cf6" />
+                <Ionicons name="warning-outline" size={22} color="#7c3aed" />
                 <Text style={styles.reviewStateText}>{reviewsErrorMessage}</Text>
                 <Pressable style={styles.retryButton} onPress={() => void loadReviews()}>
                   <Text style={styles.retryText}>Try again</Text>
@@ -510,33 +606,37 @@ export default function BarDetailScreen() {
             ) : reviews.length === 0 ? (
               <View style={styles.reviewStateCard}>
                 <View style={styles.emptyReviewIcon}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={24} color="#8b5cf6" />
+                  <Ionicons name="chatbubble-ellipses-outline" size={24} color="#7c3aed" />
                 </View>
-                <Text style={styles.reviewStateTitle}>No reviews yet</Text>
-                <Text style={styles.reviewStateText}>Be the first to leave a note after your visit.</Text>
+                <Text style={styles.reviewStateTitle}>Be the first to light up this place.</Text>
+                <Text style={styles.reviewStateText}>Your note helps this spot feel less like a pin and more like a night out.</Text>
               </View>
             ) : (
               reviews.map((review) => (
                 <View key={review.id} style={styles.reviewCard}>
                   <View style={styles.reviewHeader}>
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>{getInitials(review.username)}</Text>
+                    </View>
                     <View style={styles.reviewAuthorBlock}>
                       <Text style={styles.reviewAuthor}>{review.username || 'Vesper user'}</Text>
-                      <Text style={styles.reviewTime}>
-                        {review.createdAt ? new Date(review.createdAt).toLocaleDateString() : 'Recently'}
-                      </Text>
+                      <Text style={styles.reviewTime}>{formatReviewDate(review.createdAt)}</Text>
                     </View>
                     <View style={styles.reviewRatingPill}>
-                      <Ionicons name="star" size={12} color="#f59e0b" />
-                      <Text style={styles.reviewRating}>{review.rating}/5</Text>
+                      <ReviewStars rating={review.rating} />
                     </View>
                   </View>
                   <Text style={styles.reviewText}>{review.content}</Text>
                   {Array.isArray(review.imageUrls) && review.imageUrls.length > 0 ? (
-                    <View style={styles.reviewImageGrid}>
-                      {review.imageUrls.slice(0, 3).map((imageUrl) => (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.reviewImageStrip}
+                    >
+                      {review.imageUrls.slice(0, 6).map((imageUrl) => (
                         <Image key={imageUrl} source={{ uri: resolveAssetUrl(imageUrl) }} style={styles.reviewImageThumb} />
                       ))}
-                    </View>
+                    </ScrollView>
                   ) : null}
                 </View>
               ))
@@ -548,75 +648,75 @@ export default function BarDetailScreen() {
       <Modal visible={isReviewModalVisible} transparent animationType="fade" onRequestClose={closeReviewModal}>
         <Pressable style={styles.modalOverlay} onPress={Keyboard.dismiss}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalKeyboardAvoider}>
-          <Pressable style={[styles.modalCard, { maxHeight: screenHeight * 0.85 }]} onPress={(event) => event.stopPropagation()}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Write review</Text>
-              <Pressable style={styles.modalCloseButton} onPress={closeReviewModal}>
-                <Ionicons name="close" size={20} color="#52525b" />
-              </Pressable>
-            </View>
-
-            <ScrollView
-              keyboardDismissMode="on-drag"
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.modalScrollContent}
-            >
-              <Pressable onPress={Keyboard.dismiss}>
-              <Text style={styles.modalLabel}>Rating</Text>
-              <View style={styles.modalRatingRow}>
-                <RatingPicker value={reviewRating} onChange={setReviewRating} size={25} buttonSize={42} gap={8} />
+            <Pressable style={[styles.modalCard, { maxHeight: screenHeight * 0.85 }]} onPress={(event) => event.stopPropagation()}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Write review</Text>
+                <Pressable style={styles.modalCloseButton} onPress={closeReviewModal}>
+                  <Ionicons name="close" size={20} color="#52525b" />
+                </Pressable>
               </View>
 
-              <Text style={styles.modalLabel}>Content</Text>
-              <TextInput
-                value={reviewContent}
-                onChangeText={setReviewContent}
-                placeholder="Great atmosphere and cocktails."
-                placeholderTextColor="#a1a1aa"
-                multiline
-                maxLength={500}
-                blurOnSubmit
-                textAlignVertical="top"
-                style={styles.reviewInput}
-              />
-              <Text style={styles.characterCount}>{reviewContent.length}/500</Text>
-
-              <View style={styles.photoHeader}>
-                <Text style={styles.modalLabel}>Photos</Text>
-                <Text style={styles.photoLimitText}>{selectedImages.length}/3</Text>
-              </View>
-              <Pressable
-                disabled={selectedImages.length >= 3 || isReviewSubmitting}
-                style={[styles.addPhotoButton, (selectedImages.length >= 3 || isReviewSubmitting) && styles.addPhotoButtonDisabled]}
-                onPress={() => void handleAddPhotosPress()}
+              <ScrollView
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalScrollContent}
               >
-                <Ionicons name="image-outline" size={18} color="#7c3aed" />
-                <Text style={styles.addPhotoText}>Add photos</Text>
-              </Pressable>
-              {selectedImages.length > 0 ? (
-                <View style={styles.selectedImageGrid}>
-                  {selectedImages.map((image) => (
-                    <View key={image.id} style={styles.selectedImageWrap}>
-                      <Image source={{ uri: image.uri }} style={styles.selectedImage} />
-                      <Pressable style={styles.removeImageButton} onPress={() => removeSelectedImage(image.id)}>
-                        <Ionicons name="close" size={14} color="#ffffff" />
-                      </Pressable>
+                <Pressable onPress={Keyboard.dismiss}>
+                  <Text style={styles.modalLabel}>Rating</Text>
+                  <View style={styles.modalRatingRow}>
+                    <RatingPicker value={reviewRating} onChange={setReviewRating} size={25} buttonSize={42} gap={8} />
+                  </View>
+
+                  <Text style={styles.modalLabel}>Content</Text>
+                  <TextInput
+                    value={reviewContent}
+                    onChangeText={setReviewContent}
+                    placeholder="Great atmosphere and cocktails."
+                    placeholderTextColor="#a1a1aa"
+                    multiline
+                    maxLength={500}
+                    blurOnSubmit
+                    textAlignVertical="top"
+                    style={styles.reviewInput}
+                  />
+                  <Text style={styles.characterCount}>{reviewContent.length}/500</Text>
+
+                  <View style={styles.photoHeader}>
+                    <Text style={styles.modalLabel}>Photos</Text>
+                    <Text style={styles.photoLimitText}>{selectedImages.length}/3</Text>
+                  </View>
+                  <Pressable
+                    disabled={selectedImages.length >= 3 || isReviewSubmitting}
+                    style={[styles.addPhotoButton, (selectedImages.length >= 3 || isReviewSubmitting) && styles.addPhotoButtonDisabled]}
+                    onPress={() => void handleAddPhotosPress()}
+                  >
+                    <Ionicons name="image-outline" size={18} color="#7c3aed" />
+                    <Text style={styles.addPhotoText}>Add photos</Text>
+                  </Pressable>
+                  {selectedImages.length > 0 ? (
+                    <View style={styles.selectedImageGrid}>
+                      {selectedImages.map((image) => (
+                        <View key={image.id} style={styles.selectedImageWrap}>
+                          <Image source={{ uri: image.uri }} style={styles.selectedImage} />
+                          <Pressable style={styles.removeImageButton} onPress={() => removeSelectedImage(image.id)}>
+                            <Ionicons name="close" size={14} color="#ffffff" />
+                          </Pressable>
+                        </View>
+                      ))}
                     </View>
-                  ))}
-                </View>
-              ) : null}
+                  ) : null}
 
-              <Pressable
-                disabled={isReviewSubmitting}
-                style={[styles.submitReviewButton, isReviewSubmitting && styles.submitReviewButtonDisabled]}
-                onPress={() => void handleSubmitReview()}
-              >
-                {isReviewSubmitting ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitReviewText}>Submit</Text>}
-              </Pressable>
-              </Pressable>
-            </ScrollView>
-          </Pressable>
+                  <Pressable
+                    disabled={isReviewSubmitting}
+                    style={[styles.submitReviewButton, isReviewSubmitting && styles.submitReviewButtonDisabled]}
+                    onPress={() => void handleSubmitReview()}
+                  >
+                    {isReviewSubmitting ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitReviewText}>Submit</Text>}
+                  </Pressable>
+                </Pressable>
+              </ScrollView>
+            </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
       </Modal>
@@ -635,8 +735,10 @@ export default function BarDetailScreen() {
   );
 }
 
+const skeletonColor = '#ece8e1';
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#fffdfc' },
+  screen: { flex: 1, backgroundColor: '#fffaf5' },
   content: { paddingBottom: 132 },
   stateTopBar: { paddingHorizontal: 18 },
   centerState: {
@@ -650,13 +752,37 @@ const styles = StyleSheet.create({
   retryButton: {
     marginTop: 18,
     borderRadius: 999,
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#7c3aed',
     paddingHorizontal: 18,
     paddingVertical: 10,
   },
   retryText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
-  hero: { height: 310, backgroundColor: '#f4f4f5' },
-  heroImage: { width: '100%', height: '100%' },
+  hero: { height: 330, backgroundColor: '#e7e5e4' },
+  heroImage: { height: '100%' },
+  heroShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 150,
+    backgroundColor: 'rgba(24,24,27,0.16)',
+  },
+  heroDots: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 48,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  heroDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.58)',
+  },
+  heroDotActive: { width: 18, backgroundColor: '#ffffff' },
   heroControls: {
     position: 'absolute',
     left: 0,
@@ -672,8 +798,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.88)',
-    shadowColor: '#8b5cf6',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    shadowColor: '#111827',
     shadowOpacity: 0.12,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
@@ -681,27 +807,28 @@ const styles = StyleSheet.create({
   },
   circleButtonDisabled: { opacity: 0.55 },
   body: {
-    marginTop: -26,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    backgroundColor: '#fffdfc',
+    marginTop: -34,
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    backgroundColor: '#fffaf5',
     paddingHorizontal: 20,
-    paddingTop: 26,
+    paddingTop: 28,
   },
-  titleRow: { gap: 12 },
-  title: { color: '#111111', fontSize: 31, fontWeight: '900', lineHeight: 38 },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  title: { flex: 1, color: '#111111', fontSize: 32, fontWeight: '900', lineHeight: 38 },
   visitedPill: {
-    alignSelf: 'flex-start',
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     borderRadius: 999,
-    backgroundColor: '#8b5cf6',
-    paddingHorizontal: 12,
+    backgroundColor: '#db2777',
+    paddingHorizontal: 11,
     paddingVertical: 7,
   },
-  visitedText: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
-  addressRow: { marginTop: 10, flexDirection: 'row', alignItems: 'flex-start', gap: 7 },
+  visitedText: { color: '#ffffff', fontSize: 12, fontWeight: '900' },
+  vibeLine: { marginTop: 10, color: '#27272a', fontSize: 15, fontWeight: '800' },
+  addressRow: { marginTop: 9, flexDirection: 'row', alignItems: 'center', gap: 7 },
   meta: { flex: 1, color: '#71717a', fontSize: 14, fontWeight: '600', lineHeight: 20 },
   inlineError: {
     marginTop: 14,
@@ -714,42 +841,45 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   inlineErrorText: { flex: 1, color: '#6d28d9', fontSize: 12, fontWeight: '700' },
-  statRow: { marginTop: 18, flexDirection: 'row', gap: 10 },
+  statRow: { marginTop: 18, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     borderRadius: 999,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderWidth: 1,
+    borderColor: '#f1eee8',
+    paddingHorizontal: 13,
     paddingVertical: 9,
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.08,
+    shadowColor: '#111827',
+    shadowOpacity: 0.05,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    elevation: 2,
   },
-  newPlacePill: { backgroundColor: '#f5f3ff' },
-  rating: { color: '#f59e0b', fontSize: 14, fontWeight: '900' },
+  newPlacePill: { backgroundColor: '#f5f3ff', borderColor: '#ede9fe' },
+  starRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  starGroup: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+  rating: { color: '#f59e0b', fontSize: 13, fontWeight: '900' },
+  ratingCount: { marginLeft: -3, color: '#a1a1aa', fontSize: 12, fontWeight: '800' },
   newPlaceText: { color: '#7c3aed' },
-  price: { color: '#27272a', fontSize: 14, fontWeight: '800' },
-  tagRow: { marginTop: 18, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  tag: { borderRadius: 999, backgroundColor: '#f5f3ff', paddingHorizontal: 13, paddingVertical: 8 },
-  tagText: { color: '#7c3aed', fontSize: 13, fontWeight: '800' },
-  successCard: {
-    marginTop: 22,
-    borderRadius: 24,
-    backgroundColor: '#f5f3ff',
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#ede9fe',
-  },
-  successText: { color: '#7c3aed', fontSize: 18, fontWeight: '900' },
-  successSubtext: { marginTop: 5, color: '#6b7280', fontSize: 14, lineHeight: 20 },
-  section: { marginTop: 28 },
+  price: { color: '#3f3f46', fontSize: 13, fontWeight: '800' },
+  tagRow: { marginTop: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  tag: { borderRadius: 999, backgroundColor: '#f4f4f5', paddingHorizontal: 12, paddingVertical: 8 },
+  tagText: { color: '#3f3f46', fontSize: 12, fontWeight: '800' },
+  section: { marginTop: 30 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   sectionTitle: { color: '#111111', fontSize: 21, fontWeight: '900' },
-  about: { marginTop: 10, color: '#52525b', fontSize: 15, lineHeight: 23 },
+  sectionMeta: { marginTop: 4, color: '#a1a1aa', fontSize: 12, fontWeight: '800' },
+  about: { marginTop: 11, color: '#52525b', fontSize: 15, lineHeight: 24, fontWeight: '600' },
+  galleryContent: { gap: 12, paddingTop: 14, paddingRight: 20 },
+  galleryImage: {
+    width: 168,
+    height: 126,
+    borderRadius: 22,
+    backgroundColor: '#f4f4f5',
+  },
   writeReviewButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -761,13 +891,15 @@ const styles = StyleSheet.create({
   },
   writeReviewText: { color: '#7c3aed', fontSize: 12, fontWeight: '900' },
   reviewStateCard: {
-    marginTop: 12,
+    marginTop: 14,
     alignItems: 'center',
     borderRadius: 24,
     backgroundColor: '#ffffff',
     padding: 22,
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.08,
+    borderWidth: 1,
+    borderColor: '#f1eee8',
+    shadowColor: '#111827',
+    shadowOpacity: 0.06,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
@@ -781,35 +913,44 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f3ff',
   },
   reviewStateTitle: { marginTop: 12, color: '#18181b', fontSize: 16, fontWeight: '900', textAlign: 'center' },
-  reviewStateText: { marginTop: 8, color: '#71717a', fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  reviewStateText: { marginTop: 8, color: '#71717a', fontSize: 13, lineHeight: 19, fontWeight: '700', textAlign: 'center' },
   reviewCard: {
     marginTop: 14,
     borderRadius: 24,
     backgroundColor: '#ffffff',
     padding: 17,
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.09,
+    borderWidth: 1,
+    borderColor: '#f1eee8',
+    shadowColor: '#111827',
+    shadowOpacity: 0.06,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 3,
   },
-  reviewHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  reviewHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  avatar: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 19,
+    backgroundColor: '#18181b',
+  },
+  avatarText: { color: '#ffffff', fontSize: 12, fontWeight: '900' },
   reviewAuthorBlock: { flex: 1 },
   reviewAuthor: { color: '#18181b', fontSize: 15, fontWeight: '900' },
   reviewTime: { marginTop: 3, color: '#a1a1aa', fontSize: 12, fontWeight: '700' },
   reviewRatingPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
     borderRadius: 999,
     backgroundColor: '#fff7ed',
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
+  reviewStars: { flexDirection: 'row', alignItems: 'center', gap: 1 },
   reviewRating: { color: '#f59e0b', fontSize: 13, fontWeight: '900' },
-  reviewText: { marginTop: 11, color: '#52525b', fontSize: 14, lineHeight: 21, fontWeight: '600' },
-  reviewImageGrid: { marginTop: 13, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  reviewImageThumb: { width: 82, height: 82, borderRadius: 16, backgroundColor: '#f4f4f5' },
+  reviewText: { marginTop: 13, color: '#52525b', fontSize: 14, lineHeight: 22, fontWeight: '600' },
+  reviewImageStrip: { gap: 9, paddingTop: 13, paddingRight: 6 },
+  reviewImageThumb: { width: 88, height: 88, borderRadius: 18, backgroundColor: '#f4f4f5' },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -820,7 +961,7 @@ const styles = StyleSheet.create({
   modalKeyboardAvoider: { width: '100%' },
   modalCard: {
     borderRadius: 26,
-    backgroundColor: '#fffdfc',
+    backgroundColor: '#fffaf5',
     padding: 18,
     overflow: 'hidden',
   },
@@ -886,7 +1027,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 26,
-    backgroundColor: '#8b5cf6',
+    backgroundColor: '#7c3aed',
   },
   submitReviewButtonDisabled: { opacity: 0.65 },
   submitReviewText: { color: '#ffffff', fontSize: 15, fontWeight: '900' },
@@ -895,7 +1036,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255,253,252,0.96)',
+    backgroundColor: 'rgba(255,250,245,0.96)',
     paddingHorizontal: 20,
     paddingTop: 12,
   },
@@ -906,14 +1047,44 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     borderRadius: 28,
-    backgroundColor: '#8b5cf6',
-    shadowColor: '#8b5cf6',
-    shadowOpacity: 0.24,
+    backgroundColor: '#7c3aed',
+    shadowColor: '#7c3aed',
+    shadowOpacity: 0.22,
     shadowRadius: 22,
     shadowOffset: { width: 0, height: 12 },
     elevation: 8,
   },
-  checkInButtonDone: { backgroundColor: '#ec4899' },
+  checkInButtonDone: { backgroundColor: '#db2777' },
   checkInButtonDisabled: { opacity: 0.65 },
   checkInText: { color: '#ffffff', fontSize: 16, fontWeight: '900' },
+  skeletonHero: { height: 330, backgroundColor: '#e7e5e4' },
+  skeletonCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.82)',
+  },
+  skeletonTitle: { width: '76%', height: 36, borderRadius: 18, backgroundColor: skeletonColor },
+  skeletonLineWide: { marginTop: 14, width: '88%', height: 16, borderRadius: 8, backgroundColor: skeletonColor },
+  skeletonLineMedium: { width: '58%', height: 14, borderRadius: 7, backgroundColor: skeletonColor },
+  skeletonMetaRow: { marginTop: 18, flexDirection: 'row', gap: 10 },
+  skeletonPill: { width: 132, height: 38, borderRadius: 19, backgroundColor: skeletonColor },
+  skeletonPillSmall: { width: 92, height: 38, borderRadius: 19, backgroundColor: skeletonColor },
+  skeletonSection: { marginTop: 30 },
+  skeletonHeading: { width: 96, height: 22, borderRadius: 11, backgroundColor: skeletonColor },
+  skeletonParagraph: { marginTop: 14, width: '100%', height: 18, borderRadius: 9, backgroundColor: skeletonColor },
+  skeletonParagraphShort: { marginTop: 10, width: '68%', height: 18, borderRadius: 9, backgroundColor: skeletonColor },
+  skeletonReviewCard: { marginTop: 14, height: 118, borderRadius: 24, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#f1eee8' },
+  reviewSkeletonCard: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 12,
+    borderRadius: 24,
+    backgroundColor: '#ffffff',
+    padding: 17,
+    borderWidth: 1,
+    borderColor: '#f1eee8',
+  },
+  skeletonAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: skeletonColor },
+  reviewSkeletonBody: { flex: 1 },
 });

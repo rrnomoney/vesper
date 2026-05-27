@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { homeCategories } from '../../data/bars';
-import { getBarTags, getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../../lib/barDisplay';
+import { getBarTags, getPrimaryBarTag, getStarRatingDisplay, hasReliablePrice } from '../../lib/barDisplay';
 import { filterBars } from '../../lib/barFilters';
 import { getAuthToken } from '../../lib/authSession';
 import { pushBarDetail } from '../../lib/navigation';
@@ -27,6 +27,26 @@ import { useSavedStore } from '../../stores/savedStore';
 import { useVisitedStore } from '../../stores/visitedStore';
 
 type HomeBar = NearbyBar;
+
+function StarRatingRow({ filledStars, text, hasReviews }: { filledStars: number; text: string; hasReviews: boolean }) {
+  const [ratingText, countText] = text.match(/^(.+?)\s(\(.+\))$/)?.slice(1) ?? [text, ''];
+
+  return (
+    <View style={styles.ratingRow}>
+      {hasReviews ? (
+        <View style={styles.starGroup}>
+          {[0, 1, 2, 3, 4].map((index) => (
+            <Ionicons key={index} name={index < filledStars ? 'star' : 'star-outline'} size={13} color="#f59e0b" />
+          ))}
+        </View>
+      ) : (
+        <Ionicons name="sparkles-outline" size={13} color="#7c3aed" />
+      )}
+      <Text style={[styles.ratingValue, !hasReviews && styles.emptyRating]}>{ratingText}</Text>
+      {countText ? <Text style={styles.ratingCount}>{countText}</Text> : null}
+    </View>
+  );
+}
 
 function getLocalBarId(bar: HomeBar) {
   const localBarId = 'localBarId' in bar ? bar.localBarId : bar.id;
@@ -288,7 +308,7 @@ export default function HomeScreen() {
             const isVisited = !!localBarId && visitedBarIds.some((id) => Number(id) === Number(localBarId));
             const isSaved = !!localBarId && savedBarIds.some((id) => Number(id) === Number(localBarId));
             const isSyncing = !!localBarId && syncingBarIds.some((id) => Number(id) === Number(localBarId));
-            const ratingSummary = getRatingSummary(bar, 'New');
+            const ratingDisplay = getStarRatingDisplay(bar, 'New');
             const tags = getBarTags(bar);
             const primaryTag = getPrimaryBarTag(bar);
             const shouldShowPrice = hasReliablePrice(bar);
@@ -344,7 +364,7 @@ export default function HomeScreen() {
                   </View>
 
                   <View style={styles.cardBottomRow}>
-                    <Text style={[styles.rating, !ratingSummary.hasReviews && styles.emptyRating]}>{ratingSummary.text}</Text>
+                    <StarRatingRow {...ratingDisplay} />
                     {shouldShowPrice ? <Text style={styles.price}>{bar.price}</Text> : <Text style={styles.priceMuted}>{primaryTag}</Text>}
                   </View>
                   {openingBarId === bar.id ? (
@@ -474,7 +494,10 @@ const styles = StyleSheet.create({
   tagPill: { borderRadius: 999, backgroundColor: '#f5f3ff', paddingHorizontal: 10, paddingVertical: 6 },
   tagText: { color: '#7c3aed', fontSize: 12, fontWeight: '800' },
   cardBottomRow: { marginTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  rating: { color: '#f59e0b', fontSize: 14, fontWeight: '800' },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  starGroup: { flexDirection: 'row', alignItems: 'center', gap: 1 },
+  ratingValue: { color: '#f59e0b', fontSize: 13, fontWeight: '900' },
+  ratingCount: { color: '#a1a1aa', fontSize: 12, fontWeight: '700' },
   emptyRating: { color: '#7c3aed' },
   price: { color: '#27272a', fontSize: 14, fontWeight: '800' },
   priceMuted: { color: '#71717a', fontSize: 13, fontWeight: '800' },

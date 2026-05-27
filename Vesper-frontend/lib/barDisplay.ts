@@ -47,6 +47,25 @@ export function getRatingSummary(bar: Pick<Bar, 'rating' | 'reviews'>, emptyText
   return { hasReviews: true, text: `\u2605 ${rating.toFixed(1)} (${reviewCount})` };
 }
 
+export function getStarRatingDisplay(bar: Pick<Bar, 'rating' | 'reviews'>, emptyText = 'New place') {
+  const rating = Number(bar.rating);
+  const reviewCount = Number(bar.reviews);
+
+  if (!Number.isFinite(rating) || rating <= 0 || !Number.isFinite(reviewCount) || reviewCount <= 0) {
+    return {
+      hasReviews: false,
+      filledStars: 0,
+      text: emptyText,
+    };
+  }
+
+  return {
+    hasReviews: true,
+    filledStars: Math.max(1, Math.min(5, Math.round(rating))),
+    text: `${rating.toFixed(1)} (${reviewCount})`,
+  };
+}
+
 export function hasReliablePrice(bar: Pick<Bar, 'price'>) {
   return Boolean(bar.price && bar.price !== 'Price pending' && bar.price !== 'Details pending');
 }
@@ -61,4 +80,51 @@ export function getMapDiscoveredAbout(address: string | null | undefined) {
   }
 
   return 'A nearby bar discovered from the map. Leave a review to help others understand the vibe.';
+}
+
+function isThinAboutText(value: string | null | undefined) {
+  const text = (value || '').trim().toLowerCase();
+
+  return (
+    !text ||
+    text === 'details coming soon.' ||
+    text === 'a newly added vesper spot. more details are coming soon.' ||
+    text === 'a nearby bar discovered from the map. leave a review to help others understand the vibe.' ||
+    text.startsWith('located at ')
+  );
+}
+
+export function getDetailMetadata(bar: Bar, hasReviews: boolean) {
+  const tags = getBarTags(bar).slice(0, 3);
+  const vibeLine = tags.join(' - ');
+  const sourceLine = bar.isImported ? 'Map found' : hasReviews ? 'Community rated' : 'New place';
+  const priceLine = hasReliablePrice(bar) ? bar.price : 'Price pending';
+
+  return { tags, vibeLine, sourceLine, priceLine };
+}
+
+export function getDetailAboutText(bar: Bar, reviewCount = 0) {
+  const existingAbout = (bar.about || '').trim();
+
+  if (!isThinAboutText(existingAbout)) {
+    return existingAbout;
+  }
+
+  const tag = getPrimaryBarTag(bar).toLowerCase();
+  const hasReviews = reviewCount > 0;
+  const isCjk = hasCjkText([bar.name, bar.type, bar.neighborhood, ...bar.tags].join(' '));
+
+  if (isCjk) {
+    if (hasReviews) {
+      return `一个附近的${tag}地点，已经有人留下了体验记录。你可以通过评论和照片继续补充这里的氛围。`;
+    }
+
+    return `一个附近的${tag}地点。你可以通过评论和照片补充这里的氛围，让后来的人更容易判断是否适合今晚。`;
+  }
+
+  if (hasReviews) {
+    return `A nearby ${tag} shaped by early community notes. Add your own review or photos to make the vibe clearer for the next night out.`;
+  }
+
+  return `A nearby ${tag} spot with details still coming into focus. Reviews and photos from visits will help future guests understand the mood.`;
 }

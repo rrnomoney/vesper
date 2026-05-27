@@ -2,10 +2,30 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, Text, View } from 'react-native';
 
 import { Bar } from '../data/bars';
-import { getPrimaryBarTag, getRatingSummary, hasReliablePrice } from '../lib/barDisplay';
+import { getPrimaryBarTag, getStarRatingDisplay, hasReliablePrice } from '../lib/barDisplay';
+
+function StarRatingRow({ filledStars, text, hasReviews }: { filledStars: number; text: string; hasReviews: boolean }) {
+  const [ratingText, countText] = text.match(/^(.+?)\s(\(.+\))$/)?.slice(1) ?? [text, ''];
+
+  return (
+    <View className="flex-row items-center">
+      {hasReviews ? (
+        <View className="mr-1 flex-row items-center">
+          {[0, 1, 2, 3, 4].map((index) => (
+            <Ionicons key={index} name={index < filledStars ? 'star' : 'star-outline'} size={12} color="#f59e0b" />
+          ))}
+        </View>
+      ) : (
+        <Ionicons name="sparkles-outline" size={12} color="#7c3aed" />
+      )}
+      <Text className={`ml-1 text-[12px] font-semibold ${hasReviews ? 'text-amber-500' : 'text-violet-600'}`}>{ratingText}</Text>
+      {countText ? <Text className="ml-1 text-[11px] font-semibold text-zinc-400">{countText}</Text> : null}
+    </View>
+  );
+}
 
 export function BarCard({ bar }: { bar: Bar }) {
-  const ratingSummary = getRatingSummary(bar, 'New');
+  const ratingDisplay = getStarRatingDisplay(bar, 'New');
   const primaryTag = getPrimaryBarTag(bar);
 
   return (
@@ -38,10 +58,7 @@ export function BarCard({ bar }: { bar: Bar }) {
 
         <View className="mt-3 flex-row items-center">
           <View className="flex-row items-center rounded-full bg-violet-50 px-2.5 py-1">
-            <Ionicons name="star" size={12} color="#f59e0b" />
-            <Text className="ml-1 text-[12px] font-semibold text-zinc-800">
-              {ratingSummary.text}
-            </Text>
+            <StarRatingRow {...ratingDisplay} />
           </View>
         </View>
 

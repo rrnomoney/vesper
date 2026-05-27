@@ -65,6 +65,7 @@ export function mapBarVOToBar(bar: BarVO): Bar {
     tags: bar.category ? [bar.category] : [],
     about: bar.externalId ? getMapDiscoveredAbout(bar.address) : bar.address ? `Located at ${bar.address}.` : 'Details coming soon.',
     reviewHighlights: [],
+    isImported: Boolean(bar.externalId),
   };
 }
 

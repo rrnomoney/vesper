@@ -21,6 +21,7 @@ export type Bar = {
   tags: string[];
   about: string;
   reviewHighlights: BarReview[];
+  isImported?: boolean;
 };
 
 export const featuredBars: Bar[] = [

@@ -9,12 +9,14 @@ This file records the current project state for the stable `main` branch.
 Latest local `main` commit:
 
 ```text
-aab91fc polish bar detail experience
+f6c112d feat: polish bar detail UX and enrich AMap objective metadata
 ```
 
 Recent context:
 
 ```text
+f6c112d feat: polish bar detail UX and enrich AMap objective metadata
+c84857b update project state
 aab91fc polish bar detail experience
 76fe493 add search filters and polish map filter ux
 bce3921 add search filters and polish map filter ux
@@ -33,6 +35,7 @@ Backend:
 
 - Spring Boot API under `Vesper-backend`.
 - Java 17, Spring Security JWT auth, MyBatis-Plus, MySQL.
+- Spring Boot DevTools provides automatic restart for local Maven/IDE development and is disabled for packaged production runs.
 - Controllers/services/mappers follow the existing `Result<T>` response style.
 - Uploaded review images are stored locally under `Vesper-backend/uploads` and served via `/uploads/**`.
 - AMap nearby POI integration is implemented through backend POI endpoints.

@@ -52,6 +52,24 @@ cd Vesper-backend
 mvn spring-boot:run
 ```
 
+Spring Boot DevTools is enabled for local Maven/IDE development. When compiled classpath files change, the backend automatically restarts without rerunning `mvn spring-boot:run`.
+
+For IDE development, enable automatic project compilation or trigger Build Project after saving. For command-line development, source changes must still be compiled before DevTools can detect them.
+
+Automatic restart normally covers:
+
+- Java controller, service, mapper, security, and configuration class changes after compilation
+- compiled resource/configuration changes copied onto the application classpath
+
+A manual restart is still required for:
+
+- `pom.xml` dependency or Maven plugin changes
+- JVM arguments, shell environment variables, and process-level configuration changes
+- changes that the IDE or Maven has not compiled/copied to the classpath
+- database schema migrations, which must be applied separately
+
+DevTools is an optional development dependency and is automatically disabled for a fully packaged application launched with `java -jar`. Do not explicitly enable DevTools in production.
+
 The API uses:
 
 ```text
